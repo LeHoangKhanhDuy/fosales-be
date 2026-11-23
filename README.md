@@ -18,7 +18,7 @@ npm run start:dev
 - API: `http://localhost:3000/api`
 - Swagger: `http://localhost:3000/api/docs` (chỉ bật khi `NODE_ENV` là `development` hoặc `staging`). Ở development, `npm run start:dev` tự mở trang này trên trình duyệt một lần mỗi phiên watch; đặt `OPEN_SWAGGER=false` để tắt
 - Healthcheck: `GET /api/health`
-- Thử API trên Swagger: gọi `POST /auth/login`, copy `csrfToken` trong response vào nút **Authorize** (mục `csrf`) để gọi các route POST/DELETE khác. Cookie được trình duyệt tự gửi.
+- Thử API trên Swagger: gọi `POST /auth/login` trước. Sau đó trình duyệt tự gửi cookie, còn Swagger tự đọc cookie `fs_csrf` và gắn header `X-CSRF-Token` cho các request POST/PUT/PATCH/DELETE.
 
 Tài khoản seed (mật khẩu `123456`, chỉ dev):
 

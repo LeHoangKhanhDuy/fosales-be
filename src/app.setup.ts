@@ -115,5 +115,20 @@ function setupSwagger(app: NestFastifyApplication) {
       .addApiKey({ type: 'apiKey', in: 'header', name: 'X-CSRF-Token' }, 'csrf')
       .build(),
   );
-  SwaggerModule.setup('api/docs', app, document, { swaggerOptions: { withCredentials: true } });
+  SwaggerModule.setup('api/docs', app, document, {
+    swaggerOptions: { withCredentials: true, persistAuthorization: true, requestInterceptor: attachCsrfHeader },
+  });
+}
+
+function attachCsrfHeader(req: { method?: string; headers: Record<string, string> }) {
+  const cookies = (globalThis as unknown as { document: { cookie: string } }).document.cookie;
+  const token = cookies
+    .split('; ')
+    .find((item) => item.startsWith('fs_csrf='))
+    ?.slice('fs_csrf='.length);
+  const method = (req.method ?? 'GET').toUpperCase();
+  if (token && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    req.headers['X-CSRF-Token'] = decodeURIComponent(token);
+  }
+  return req;
 }
