@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import type { AuthUser } from '../../common/auth-user';
 import { Errors } from '../../common/errors';
 import type { ClientInfo } from '../../common/http/client-info';
+import { rethrowPrisma } from '../../common/prisma-errors';
 import { verifyPassword } from '../../common/security/password';
 import { normalizePhone } from '../../common/utils/mask';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -64,12 +65,7 @@ export class ProfileService {
 
     const profile = await this.prisma.user
       .update({ where: { id: user.id }, data, select: PROFILE_SELECT })
-      .catch((error: unknown) => {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-          throw Errors.phoneTaken();
-        }
-        throw error;
-      });
+      .catch(rethrowPrisma({ P2002: Errors.phoneTaken }));
     await this.audit.log('PROFILE_UPDATED', client, { userId: user.id, meta: { fields } });
     return profile;
   }
