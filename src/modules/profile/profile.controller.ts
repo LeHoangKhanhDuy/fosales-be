@@ -20,7 +20,11 @@ export class ProfileController {
   }
 
   @Patch()
-  update(@CurrentUser() user: AuthUser, @Body() dto: UpdateProfileDto, @Client() client: ClientInfo) {
+  update(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateProfileDto,
+    @Client() client: ClientInfo,
+  ) {
     return this.profile.update(user, dto, client);
   }
 }

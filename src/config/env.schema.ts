@@ -39,30 +39,61 @@ const origins = z
   )
   .pipe(z.array(z.string().url()).min(1));
 
-export const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'staging', 'production']),
-  PORT: z.coerce.number().int().positive().default(3000),
-  DATABASE_URL: z.string().min(1),
-  JWT_SECRET: z
-    .string()
-    .refine(
-      (value) => Buffer.byteLength(value, 'utf8') >= 32,
-      'JWT_SECRET must be at least 32 bytes',
-    ),
-  COOKIE_DOMAIN: z
-    .string()
-    .trim()
-    .transform((value) => value || undefined),
-  CORS_ORIGINS: origins,
-  ACCESS_TTL: duration,
-  REFRESH_TTL_REMEMBER: duration,
-  REFRESH_TTL_SESSION: duration,
-  TRUST_PROXY: z.string().default('false').transform(parseTrustProxy),
-  OPEN_SWAGGER: z
-    .enum(['true', 'false'])
-    .default('true')
-    .transform((value) => value === 'true'),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-});
+export const envSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'staging', 'production']),
+    PORT: z.coerce.number().int().positive().default(3000),
+    DATABASE_URL: z.string().min(1),
+    JWT_SECRET: z
+      .string()
+      .refine(
+        (value) => Buffer.byteLength(value, 'utf8') >= 32,
+        'JWT_SECRET must be at least 32 bytes',
+      ),
+    COOKIE_DOMAIN: z
+      .string()
+      .trim()
+      .transform((value) => value || undefined),
+    CORS_ORIGINS: origins,
+    ACCESS_TTL: duration,
+    REFRESH_TTL_REMEMBER: duration,
+    REFRESH_TTL_SESSION: duration,
+    TRUST_PROXY: z.string().default('false').transform(parseTrustProxy),
+    OPEN_SWAGGER: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((value) => value === 'true'),
+    LOG_LEVEL: z
+      .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+      .default('info'),
+    STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+    UPLOAD_DIR: z.string().trim().min(1).default('uploads'),
+    S3_ENDPOINT: z.string().url().optional(),
+    S3_REGION: z.string().default('auto'),
+    S3_BUCKET: z.string().optional(),
+    S3_ACCESS_KEY_ID: z.string().optional(),
+    S3_SECRET_ACCESS_KEY: z.string().optional(),
+    S3_PUBLIC_URL: z
+      .string()
+      .url()
+      .transform((value) => value.replace(/\/+$/, ''))
+      .optional(),
+  })
+  .superRefine((env, ctx) => {
+    if (env.STORAGE_DRIVER !== 's3') return;
+    for (const key of [
+      'S3_BUCKET',
+      'S3_ACCESS_KEY_ID',
+      'S3_SECRET_ACCESS_KEY',
+      'S3_PUBLIC_URL',
+    ] as const) {
+      if (!env[key])
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: 'Required when STORAGE_DRIVER=s3',
+        });
+    }
+  });
 
 export type Env = z.infer<typeof envSchema>;

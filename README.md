@@ -89,6 +89,68 @@ Guard mặc định bắt buộc đăng nhập cho mọi route; dùng `@Public()
 
 Đổi mật khẩu và quản lý thiết bị vẫn ở `/auth/change-password`, `/auth/sessions`.
 
+## Endpoint Danh mục & Đơn vị tính (prefix `/api`)
+
+Dùng chung cho cả chuỗi. `GET` cho mọi vai trò đã đăng nhập; `POST/PATCH/PUT/DELETE` chỉ `admin`, `manager` (còn lại `403 AUTH_FORBIDDEN`).
+
+| Method | Path | Ghi chú |
+|---|---|---|
+| GET | `/categories` | `?withCount=true` (mặc định), `?status=active\|inactive`. Sắp `sortOrder`, rồi tên (tiếng Việt) |
+| POST | `/categories` | `{ name, description?, icon?, color?, status? }` → 201, `sortOrder = max + 1` |
+| PATCH | `/categories/:id` | Sửa một phần |
+| PUT | `/categories/order` | `{ ids }` là hoán vị đủ mọi danh mục → 204 (1 câu `UPDATE … unnest`) |
+| DELETE | `/categories/:id` | `?moveTo=<id>` khi còn sản phẩm → 204 |
+| GET | `/units` | `?withCount=true`. Sắp theo tên (tiếng Việt) |
+| POST | `/units` | `{ name, description? }` → 201 |
+| PATCH | `/units/:id` | Sửa một phần |
+| DELETE | `/units/:id` | `?replaceWith=<id>` khi đang dùng → 204 |
+
+- Tên danh mục 1–50 ký tự, đơn vị 1–20 (tự gộp khoảng trắng); mô tả ≤ 255, chuỗi rỗng lưu `null`.
+- Chống trùng tên không phân biệt dấu/hoa thường qua cột `nameKey` (unique): "Đồ uống" trùng "do uong".
+- `icon`, `color`, `status` hợp lệ: xem `src/modules/catalog/catalog.constants.ts` (`CATEGORY_ICONS`, `CATEGORY_COLORS`, `CATEGORY_STATUSES`).
+- `productCount` đếm sản phẩm chưa xóa bằng `_count` trong cùng truy vấn. Xóa danh mục/đơn vị: sản phẩm đã xóa mềm được chuyển theo `moveTo`/`replaceWith`, hoặc gỡ liên kết (`NULL`) nếu không có.
+- Mã lỗi: `CATEGORY_NOT_FOUND`/`UNIT_NOT_FOUND` (404), `*_NAME_TAKEN` và `*_IN_USE` (409, `details.productCount`), `CATEGORY_MOVE_TARGET_INVALID`, `UNIT_REPLACE_TARGET_INVALID`, `CATEGORY_ORDER_INVALID` (400).
+- Audit: `CATEGORY_CREATED/UPDATED/DELETED/REORDERED`, `UNIT_CREATED/UPDATED/DELETED`.
+
+## Endpoint Sản phẩm (prefix `/api`)
+
+Danh mục sản phẩm dùng chung toàn chuỗi; tồn kho tách theo cửa hàng (`product_stocks`), mọi API trả `stock` là tồn tại cửa hàng của người đang đăng nhập. `GET` cho mọi vai trò; ghi chỉ `admin`, `manager`. Thu ngân không nhận `costPrice`.
+
+| Method | Path | Ghi chú |
+|---|---|---|
+| GET | `/products` | `keyword` (không dấu), `categoryId`, `status`, `stock=in-stock\|low\|out`, `sort=newest\|name\|price-desc\|price-asc\|stock-asc`, `page`, `pageSize` (≤100) → `{ items, total, page, pageSize }` |
+| GET | `/products/stats` | `categoryId?`, `status?` → `{ total, active, inventoryValue, inventoryUnits, low, out }` |
+| GET | `/products/sellable` | Cho POS: đang bán, chưa xóa, danh mục đang hoạt động |
+| GET | `/products/options` | `keyword?`, `limit?` (≤200), `ids?` (csv) → bản gọn cho ô chọn sản phẩm |
+| GET | `/products/lookup` | `code` = mã vạch hoặc SKU → 404 `PRODUCT_NOT_FOUND` |
+| GET | `/products/:id` | |
+| POST | `/products` | SKU bỏ trống → tự sinh `SPxxxx` (khóa advisory); `initialStock > 0` → movement `initial` |
+| PATCH | `/products/:id` | Sửa một phần; `stock` khác tồn hiện tại → movement `adjust_in/adjust_out` |
+| PATCH | `/products/status` | `{ ids (1–200), status }` → `{ updated }` |
+| POST | `/products/bulk-delete` | `{ ids (1–200) }` → `{ deleted, withStock }` (xóa mềm) |
+| POST | `/uploads/images` | multipart `file` (PNG/JPEG/WebP/GIF ≤ 5MB, kiểm tra magic bytes) → 201 `{ url }`; 30 ảnh/phút/IP |
+
+- Tiền là số nguyên VND. SKU lưu viết hoa; mã vạch 8–14 số, 13 số phải đúng số kiểm tra EAN-13.
+- Xóa là xóa mềm (`deletedAt`). SKU/mã vạch chỉ unique trong các sản phẩm chưa xóa nhờ cột `skuKey`/`barcodeKey` (`@unique`, đặt `NULL` khi xóa), nên tạo lại được SKU cũ.
+- Mọi thay đổi tồn đi qua `StockLedger.setQuantity` (khóa dòng `FOR UPDATE`, ghi `stock_movements` before/after) trong cùng transaction.
+- Danh sách/thống kê dùng một truy vấn SQL (LEFT JOIN tồn của cửa hàng) để lọc tồn và sắp theo tồn; sắp theo tên dùng `search_key` (tên bỏ dấu).
+- Mã lỗi: `PRODUCT_NOT_FOUND` (404), `PRODUCT_SKU_TAKEN`/`PRODUCT_BARCODE_TAKEN` (409), `PRODUCT_BARCODE_INVALID`, `PRODUCT_CATEGORY_INVALID`, `PRODUCT_UNIT_INVALID`, `PRODUCT_ORIGINAL_PRICE_INVALID`, `IMAGE_REQUIRED`, `IMAGE_INVALID` (400), `IMAGE_TOO_LARGE` (413).
+- Audit: `PRODUCT_CREATED/UPDATED/STATUS_CHANGED/DELETED`, `STOCK_ADJUSTED`, `IMAGE_UPLOADED`.
+
+### Lưu ảnh
+
+Ảnh được xoay theo EXIF, thu về cạnh dài tối đa 800px, chuyển WebP chất lượng 82, bỏ metadata, đặt tên bằng UUID.
+
+| Biến | Mặc định | Ghi chú |
+|---|---|---|
+| `STORAGE_DRIVER` | `local` | `local` hoặc `s3` |
+| `UPLOAD_DIR` | `uploads` | Thư mục lưu khi `local`, phục vụ tại `/api/uploads/files/<tên>` (cache 1 năm, immutable) |
+| `S3_ENDPOINT` | | Bỏ trống với AWS; R2/MinIO điền endpoint |
+| `S3_REGION` | `auto` | |
+| `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_PUBLIC_URL` | | Bắt buộc khi `s3`; URL trả về là `S3_PUBLIC_URL/products/<tên>` |
+
+Khi dùng S3, frontend cần cho phép domain `S3_PUBLIC_URL` trong `img-src` của CSP. Việc dọn ảnh không gắn vào sản phẩm nào sau 24 giờ chưa làm (cần job định kỳ).
+
 ## Luồng cookie
 
 | Cookie | Nội dung | Thuộc tính |
@@ -143,7 +205,7 @@ Double-submit cookie: mọi request `POST/PUT/PATCH/DELETE` phải có header `X
 
 ## Audit log
 
-Bảng `audit_logs` ghi: `LOGIN_SUCCESS`, `LOGIN_FAILED`, `LOGIN_LOCKED`, `LOGOUT`, `LOGOUT_ALL`, `TOKEN_REUSE_DETECTED`, `SESSION_REVOKED`, `PASSWORD_CHANGED`, `PASSWORD_RESET_REQUESTED`, `PASSWORD_RESET_FAILED`, `PASSWORD_RESET`, `PROFILE_UPDATED` kèm IP và User-Agent. Không lưu mật khẩu, token hay OTP thô ở bất kỳ đâu; log pino chỉ ghi method/url/status và che các header nhạy cảm.
+Bảng `audit_logs` ghi: `LOGIN_SUCCESS`, `LOGIN_FAILED`, `LOGIN_LOCKED`, `LOGOUT`, `LOGOUT_ALL`, `TOKEN_REUSE_DETECTED`, `SESSION_REVOKED`, `PASSWORD_CHANGED`, `PASSWORD_RESET_REQUESTED`, `PASSWORD_RESET_FAILED`, `PASSWORD_RESET`, `PROFILE_UPDATED`, `CATEGORY_*`, `UNIT_*`, `PRODUCT_*`, `STOCK_ADJUSTED`, `IMAGE_UPLOADED` kèm IP và User-Agent. Không lưu mật khẩu, token hay OTP thô ở bất kỳ đâu; log pino chỉ ghi method/url/status và che các header nhạy cảm.
 
 ## Triển khai
 

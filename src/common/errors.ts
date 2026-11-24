@@ -46,10 +46,16 @@ export const Errors = {
     new AppException(400, 'AUTH_PASSWORD_REUSED', 'Mật khẩu mới phải khác mật khẩu hiện tại'),
   otpInvalid: () => new AppException(400, 'OTP_INVALID', 'Mã OTP không đúng hoặc đã hết hạn'),
   passwordRequired: () =>
-    new AppException(400, 'AUTH_PASSWORD_REQUIRED', 'Vui lòng nhập mật khẩu hiện tại để đổi số điện thoại'),
+    new AppException(
+      400,
+      'AUTH_PASSWORD_REQUIRED',
+      'Vui lòng nhập mật khẩu hiện tại để đổi số điện thoại',
+    ),
   invalidPhone: () => new AppException(400, 'VALIDATION_ERROR', 'Số điện thoại không hợp lệ'),
-  phoneTaken: () => new AppException(409, 'PHONE_TAKEN', 'Số điện thoại đã được dùng cho tài khoản khác'),
-  emptyUpdate: () => new AppException(400, 'VALIDATION_ERROR', 'Không có thông tin nào để cập nhật'),
+  phoneTaken: () =>
+    new AppException(409, 'PHONE_TAKEN', 'Số điện thoại đã được dùng cho tài khoản khác'),
+  emptyUpdate: () =>
+    new AppException(400, 'VALIDATION_ERROR', 'Không có thông tin nào để cập nhật'),
   sessionNotFound: () =>
     new AppException(404, 'SESSION_NOT_FOUND', 'Không tìm thấy phiên đăng nhập'),
 };

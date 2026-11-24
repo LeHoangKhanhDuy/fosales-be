@@ -1,14 +1,15 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsOptional, IsString, Length, MaxLength } from 'class-validator';
+import { collapseSpaces } from '../../../common/utils/text';
 
-const collapseSpaces = ({ value }: { value: unknown }) =>
-  typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value;
+const collapse = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? collapseSpaces(value) : value;
 
 export class UpdateProfileDto {
   @ApiPropertyOptional({ example: 'Khánh Duy' })
   @IsOptional()
-  @Transform(collapseSpaces)
+  @Transform(collapse)
   @IsString({ message: 'Họ tên không hợp lệ' })
   @Length(2, 100, { message: 'Họ tên phải từ 2 đến 100 ký tự' })
   name?: string;

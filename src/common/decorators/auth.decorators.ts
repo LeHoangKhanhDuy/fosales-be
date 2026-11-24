@@ -16,7 +16,6 @@ export const CurrentUser = createParamDecorator(
     ctx.switchToHttp().getRequest<FastifyRequest>().user,
 );
 
-export const Client = createParamDecorator(
-  (_data: unknown, ctx: ExecutionContext): ClientInfo =>
-    clientInfo(ctx.switchToHttp().getRequest<FastifyRequest>()),
+export const Client = createParamDecorator((_data: unknown, ctx: ExecutionContext): ClientInfo =>
+  clientInfo(ctx.switchToHttp().getRequest<FastifyRequest>()),
 );

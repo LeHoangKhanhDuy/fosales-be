@@ -11,7 +11,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 export const ORIGIN = 'http://localhost:5173';
 export const PASSWORD = 'Secret123';
 
-type Method = 'get' | 'post' | 'patch' | 'delete';
+type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
 interface CallOptions {
   csrf?: string | null;
@@ -58,6 +58,19 @@ export class TestClient {
     return res;
   }
 
+  upload(path: string, file: Buffer, filename: string) {
+    const cookie = Object.entries(this.jar)
+      .map(([name, value]) => `${name}=${value}`)
+      .join('; ');
+    return request(this.app.getHttpServer())
+      .post(`/api${path}`)
+      .set('X-Forwarded-For', this.ip)
+      .set('Origin', ORIGIN)
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', this.jar.fs_csrf ?? '')
+      .attach('file', file, filename);
+  }
+
   login(username: string, password = PASSWORD, remember = false) {
     return this.call('post', '/auth/login', { username, password, remember });
   }
@@ -81,8 +94,11 @@ export class TestClient {
   }
 }
 
-export async function createTestApp(customize: (builder: TestingModuleBuilder) => TestingModuleBuilder = (b) => b) {
-  if (process.env.NODE_ENV !== 'test') throw new Error('E2E chỉ chạy với NODE_ENV=test (test/e2e.env)');
+export async function createTestApp(
+  customize: (builder: TestingModuleBuilder) => TestingModuleBuilder = (b) => b,
+) {
+  if (process.env.NODE_ENV !== 'test')
+    throw new Error('E2E chỉ chạy với NODE_ENV=test (test/e2e.env)');
   const config = loadConfig();
   const moduleRef = await customize(Test.createTestingModule({ imports: [AppModule] })).compile();
   const app = moduleRef.createNestApplication<NestFastifyApplication>(createAdapter(config));
@@ -105,7 +121,9 @@ export class TestData {
   }
 
   async store() {
-    this.storeId ??= (await this.prisma.store.create({ data: { code: this.run, name: 'E2E Store' } })).id;
+    this.storeId ??= (
+      await this.prisma.store.create({ data: { code: this.run, name: 'E2E Store' } })
+    ).id;
     return this.storeId;
   }
 
@@ -127,7 +145,31 @@ export class TestData {
     return `07${String(this.phoneBase + offset).padStart(8, '0')}`;
   }
 
+  async catalog() {
+    this.seq += 1;
+    const key = `${this.run} c${this.seq}`;
+    const [category, unit] = await Promise.all([
+      this.prisma.category.create({ data: { name: key, nameKey: key, sortOrder: 9999 } }),
+      this.prisma.unit.create({
+        data: { name: `${this.run}u${this.seq}`, nameKey: `${this.run}u${this.seq}` },
+      }),
+    ]);
+    return { category, unit };
+  }
+
+  product(categoryId: string, unitId: string) {
+    this.seq += 1;
+    const sku = `${this.run}P${this.seq}`.toUpperCase();
+    const name = `${this.run} p${this.seq}`;
+    return this.prisma.product.create({
+      data: { name, sku, skuKey: sku, searchKey: name, price: 10000, categoryId, unitId },
+    });
+  }
+
   async cleanup() {
+    await this.prisma.product.deleteMany({ where: { name: { startsWith: this.run } } });
+    await this.prisma.category.deleteMany({ where: { nameKey: { startsWith: this.run } } });
+    await this.prisma.unit.deleteMany({ where: { nameKey: { startsWith: this.run } } });
     await this.prisma.user.deleteMany({ where: { username: { startsWith: this.run } } });
     await this.prisma.store.deleteMany({ where: { code: this.run } });
   }
