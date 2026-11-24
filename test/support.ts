@@ -11,7 +11,7 @@ import { PrismaService } from '../src/prisma/prisma.service';
 export const ORIGIN = 'http://localhost:5173';
 export const PASSWORD = 'Secret123';
 
-type Method = 'get' | 'post' | 'patch' | 'delete';
+type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
 interface CallOptions {
   csrf?: string | null;
@@ -127,7 +127,25 @@ export class TestData {
     return `07${String(this.phoneBase + offset).padStart(8, '0')}`;
   }
 
+  async catalog() {
+    this.seq += 1;
+    const key = `${this.run} c${this.seq}`;
+    const [category, unit] = await Promise.all([
+      this.prisma.category.create({ data: { name: key, nameKey: key, sortOrder: 9999 } }),
+      this.prisma.unit.create({ data: { name: `${this.run}u${this.seq}`, nameKey: `${this.run}u${this.seq}` } }),
+    ]);
+    return { category, unit };
+  }
+
+  product(categoryId: string, unitId: string) {
+    this.seq += 1;
+    return this.prisma.product.create({ data: { name: `${this.run} p${this.seq}`, categoryId, unitId } });
+  }
+
   async cleanup() {
+    await this.prisma.product.deleteMany({ where: { name: { startsWith: this.run } } });
+    await this.prisma.category.deleteMany({ where: { nameKey: { startsWith: this.run } } });
+    await this.prisma.unit.deleteMany({ where: { nameKey: { startsWith: this.run } } });
     await this.prisma.user.deleteMany({ where: { username: { startsWith: this.run } } });
     await this.prisma.store.deleteMany({ where: { code: this.run } });
   }
