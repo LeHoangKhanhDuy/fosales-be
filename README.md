@@ -89,6 +89,29 @@ Guard mặc định bắt buộc đăng nhập cho mọi route; dùng `@Public()
 
 Đổi mật khẩu và quản lý thiết bị vẫn ở `/auth/change-password`, `/auth/sessions`.
 
+## Endpoint Danh mục & Đơn vị tính (prefix `/api`)
+
+Dùng chung cho cả chuỗi. `GET` cho mọi vai trò đã đăng nhập; `POST/PATCH/PUT/DELETE` chỉ `admin`, `manager` (còn lại `403 AUTH_FORBIDDEN`).
+
+| Method | Path | Ghi chú |
+|---|---|---|
+| GET | `/categories` | `?withCount=true` (mặc định), `?status=active\|inactive`. Sắp `sortOrder`, rồi tên (tiếng Việt) |
+| POST | `/categories` | `{ name, description?, icon?, color?, status? }` → 201, `sortOrder = max + 1` |
+| PATCH | `/categories/:id` | Sửa một phần |
+| PUT | `/categories/order` | `{ ids }` là hoán vị đủ mọi danh mục → 204 (1 câu `UPDATE … unnest`) |
+| DELETE | `/categories/:id` | `?moveTo=<id>` khi còn sản phẩm → 204 |
+| GET | `/units` | `?withCount=true`. Sắp theo tên (tiếng Việt) |
+| POST | `/units` | `{ name, description? }` → 201 |
+| PATCH | `/units/:id` | Sửa một phần |
+| DELETE | `/units/:id` | `?replaceWith=<id>` khi đang dùng → 204 |
+
+- Tên danh mục 1–50 ký tự, đơn vị 1–20 (tự gộp khoảng trắng); mô tả ≤ 255, chuỗi rỗng lưu `null`.
+- Chống trùng tên không phân biệt dấu/hoa thường qua cột `nameKey` (unique): "Đồ uống" trùng "do uong".
+- `icon`, `color`, `status` hợp lệ: xem `src/modules/catalog/catalog.constants.ts` (`CATEGORY_ICONS`, `CATEGORY_COLORS`, `CATEGORY_STATUSES`).
+- `productCount` đếm bằng `_count` trong cùng truy vấn. Bảng `products` hiện chỉ có `id, name, categoryId, unitId` (FK `Restrict`), module sản phẩm sẽ bổ sung cột.
+- Mã lỗi: `CATEGORY_NOT_FOUND`/`UNIT_NOT_FOUND` (404), `*_NAME_TAKEN` và `*_IN_USE` (409, `details.productCount`), `CATEGORY_MOVE_TARGET_INVALID`, `UNIT_REPLACE_TARGET_INVALID`, `CATEGORY_ORDER_INVALID` (400).
+- Audit: `CATEGORY_CREATED/UPDATED/DELETED/REORDERED`, `UNIT_CREATED/UPDATED/DELETED`.
+
 ## Luồng cookie
 
 | Cookie | Nội dung | Thuộc tính |
@@ -143,7 +166,7 @@ Double-submit cookie: mọi request `POST/PUT/PATCH/DELETE` phải có header `X
 
 ## Audit log
 
-Bảng `audit_logs` ghi: `LOGIN_SUCCESS`, `LOGIN_FAILED`, `LOGIN_LOCKED`, `LOGOUT`, `LOGOUT_ALL`, `TOKEN_REUSE_DETECTED`, `SESSION_REVOKED`, `PASSWORD_CHANGED`, `PASSWORD_RESET_REQUESTED`, `PASSWORD_RESET_FAILED`, `PASSWORD_RESET`, `PROFILE_UPDATED` kèm IP và User-Agent. Không lưu mật khẩu, token hay OTP thô ở bất kỳ đâu; log pino chỉ ghi method/url/status và che các header nhạy cảm.
+Bảng `audit_logs` ghi: `LOGIN_SUCCESS`, `LOGIN_FAILED`, `LOGIN_LOCKED`, `LOGOUT`, `LOGOUT_ALL`, `TOKEN_REUSE_DETECTED`, `SESSION_REVOKED`, `PASSWORD_CHANGED`, `PASSWORD_RESET_REQUESTED`, `PASSWORD_RESET_FAILED`, `PASSWORD_RESET`, `PROFILE_UPDATED`, `CATEGORY_*`, `UNIT_*` kèm IP và User-Agent. Không lưu mật khẩu, token hay OTP thô ở bất kỳ đâu; log pino chỉ ghi method/url/status và che các header nhạy cảm.
 
 ## Triển khai
 

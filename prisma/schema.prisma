@@ -37,6 +37,18 @@ enum AuditAction {
   PASSWORD_RESET_FAILED
   PASSWORD_RESET
   PROFILE_UPDATED
+  CATEGORY_CREATED
+  CATEGORY_UPDATED
+  CATEGORY_DELETED
+  CATEGORY_REORDERED
+  UNIT_CREATED
+  UNIT_UPDATED
+  UNIT_DELETED
+}
+
+enum CategoryStatus {
+  active
+  inactive
 }
 
 model Store {
@@ -122,4 +134,48 @@ model AuditLog {
   @@index([userId, createdAt])
   @@index([action, createdAt])
   @@map("audit_logs")
+}
+
+model Category {
+  id          String         @id @default(uuid()) @db.Uuid
+  name        String         @db.VarChar(50)
+  nameKey     String         @unique @map("name_key")
+  description String?        @db.VarChar(255)
+  icon        String         @default("package")
+  color       String         @default("slate")
+  status      CategoryStatus @default(active)
+  sortOrder   Int            @map("sort_order")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  products    Product[]
+
+  @@index([sortOrder])
+  @@map("categories")
+}
+
+model Unit {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String    @db.VarChar(20)
+  nameKey     String    @unique @map("name_key")
+  description String?   @db.VarChar(255)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  products    Product[]
+
+  @@map("units")
+}
+
+model Product {
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String   @db.VarChar(200)
+  categoryId String   @map("category_id") @db.Uuid
+  unitId     String   @map("unit_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  unit       Unit     @relation(fields: [unitId], references: [id], onDelete: Restrict)
+
+  @@index([categoryId])
+  @@index([unitId])
+  @@map("products")
 }
