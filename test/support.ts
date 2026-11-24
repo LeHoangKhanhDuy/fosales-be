@@ -16,6 +16,7 @@ type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
 interface CallOptions {
   csrf?: string | null;
   origin?: string | null;
+  headers?: Record<string, string>;
 }
 
 let ipSeq = 0;
@@ -45,6 +46,7 @@ export class TestClient {
     let req = request(this.app.getHttpServer())
       [method](`/api${path}`)
       .set('X-Forwarded-For', this.ip);
+    if (options.headers) req = req.set(options.headers);
     const origin = options.origin === undefined ? ORIGIN : options.origin;
     if (origin) req = req.set('Origin', origin);
     const cookie = Object.entries(this.jar)
