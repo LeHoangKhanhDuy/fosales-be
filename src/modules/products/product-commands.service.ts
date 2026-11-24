@@ -11,7 +11,7 @@ import { CreateProductDto, UpdateProductDto } from './dto/product.dto';
 import { ProductErrors } from './products.errors';
 import { formatSku, isValidBarcode, productSearchKey } from './products.utils';
 import { ProductsService } from './products.service';
-import { StockLedger } from './stock-ledger.service';
+import { StockLedger } from '../stock/stock-ledger.service';
 
 type Tx = Prisma.TransactionClient;
 

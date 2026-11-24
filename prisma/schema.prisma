@@ -50,6 +50,7 @@ enum AuditAction {
   PRODUCT_DELETED
   STOCK_ADJUSTED
   IMAGE_UPLOADED
+  MIN_STOCK_UPDATED
 }
 
 enum ProductStatus {
@@ -111,6 +112,7 @@ model User {
   resetOtps         PasswordResetOtp[]
   auditLogs         AuditLog[]
   stockMovements    StockMovement[]
+  idempotencyKeys   IdempotencyKey[]
 
   @@index([storeId])
   @@map("users")
@@ -229,15 +231,16 @@ model Product {
 }
 
 model ProductStock {
-  productId String   @map("product_id") @db.Uuid
-  storeId   String   @map("store_id") @db.Uuid
-  quantity  Int      @default(0)
-  updatedAt DateTime @updatedAt @map("updated_at")
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productId      String    @map("product_id") @db.Uuid
+  storeId        String    @map("store_id") @db.Uuid
+  quantity       Int       @default(0)
+  lastMovementAt DateTime? @map("last_movement_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  product        Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  store          Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@id([productId, storeId])
-  @@index([storeId])
+  @@index([storeId, quantity])
   @@map("product_stocks")
 }
 
@@ -258,7 +261,22 @@ model StockMovement {
   store       Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
   createdBy   User         @relation(fields: [createdById], references: [id])
 
-  @@index([productId, createdAt])
-  @@index([storeId, createdAt])
+  @@index([storeId, createdAt(sort: Desc)])
+  @@index([storeId, productId, createdAt(sort: Desc)])
+  @@index([storeId, type, createdAt])
+  @@index([productId])
   @@map("stock_movements")
+}
+
+model IdempotencyKey {
+  userId     String   @map("user_id") @db.Uuid
+  key        String   @db.VarChar(100)
+  scope      String   @db.VarChar(50)
+  resourceId String   @map("resource_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, key])
+  @@index([createdAt])
+  @@map("idempotency_keys")
 }
