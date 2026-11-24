@@ -80,6 +80,15 @@ Tạo `JWT_SECRET` ngẫu nhiên: `node -e "console.log(require('crypto').random
 
 Guard mặc định bắt buộc đăng nhập cho mọi route; dùng `@Public()` để mở, `@Roles('admin', 'manager')` để giới hạn vai trò, `@CurrentUser()` để lấy `{ id, role, storeId, sid }`.
 
+## Endpoint Profile (prefix `/api`, cần đăng nhập)
+
+| Method | Path | Ghi chú |
+|---|---|---|
+| GET | `/profile` | `{ id, username, phone, name, role, storeId, store: { id, code, name }, lastLoginAt, passwordChangedAt, createdAt }` |
+| PATCH | `/profile` | `{ name?, phone?, currentPassword? }`. Họ tên 2–100 ký tự (tự gộp khoảng trắng). Đổi SĐT bắt buộc `currentPassword` (SĐT dùng nhận OTP khôi phục), chấp nhận `0xxx`/`+84xxx`, trùng SĐT trả `409 PHONE_TAKEN`. Trả hồ sơ mới, ghi audit `PROFILE_UPDATED` (chỉ lưu tên trường) |
+
+Đổi mật khẩu và quản lý thiết bị vẫn ở `/auth/change-password`, `/auth/sessions`.
+
 ## Luồng cookie
 
 | Cookie | Nội dung | Thuộc tính |
@@ -128,12 +137,13 @@ Double-submit cookie: mọi request `POST/PUT/PATCH/DELETE` phải có header `X
 | `ORIGIN_NOT_ALLOWED` | 403 | Origin không thuộc allowlist |
 | `SESSION_NOT_FOUND` | 404 | Thu hồi session không tồn tại |
 | `AUTH_ACCOUNT_LOCKED` | 423 | Tạm khóa do sai nhiều lần |
-| `AUTH_INVALID_PASSWORD` / `AUTH_PASSWORD_REUSED` / `OTP_INVALID` | 400 | Đổi/reset mật khẩu |
+| `AUTH_INVALID_PASSWORD` / `AUTH_PASSWORD_REUSED` / `AUTH_PASSWORD_REQUIRED` / `OTP_INVALID` | 400 | Đổi/reset mật khẩu, đổi SĐT |
+| `PHONE_TAKEN` | 409 | SĐT đã thuộc tài khoản khác |
 | `RATE_LIMITED` | 429 | Vượt giới hạn tần suất |
 
 ## Audit log
 
-Bảng `audit_logs` ghi: `LOGIN_SUCCESS`, `LOGIN_FAILED`, `LOGIN_LOCKED`, `LOGOUT`, `LOGOUT_ALL`, `TOKEN_REUSE_DETECTED`, `SESSION_REVOKED`, `PASSWORD_CHANGED`, `PASSWORD_RESET_REQUESTED`, `PASSWORD_RESET_FAILED`, `PASSWORD_RESET` kèm IP và User-Agent. Không lưu mật khẩu, token hay OTP thô ở bất kỳ đâu; log pino chỉ ghi method/url/status và che các header nhạy cảm.
+Bảng `audit_logs` ghi: `LOGIN_SUCCESS`, `LOGIN_FAILED`, `LOGIN_LOCKED`, `LOGOUT`, `LOGOUT_ALL`, `TOKEN_REUSE_DETECTED`, `SESSION_REVOKED`, `PASSWORD_CHANGED`, `PASSWORD_RESET_REQUESTED`, `PASSWORD_RESET_FAILED`, `PASSWORD_RESET`, `PROFILE_UPDATED` kèm IP và User-Agent. Không lưu mật khẩu, token hay OTP thô ở bất kỳ đâu; log pino chỉ ghi method/url/status và che các header nhạy cảm.
 
 ## Triển khai
 

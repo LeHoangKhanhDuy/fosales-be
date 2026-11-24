@@ -1,61 +1,36 @@
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
-import { Test } from '@nestjs/testing';
-import type { Role } from '@prisma/client';
-import { AppModule } from '../src/app.module';
-import { configureApp, createAdapter } from '../src/app.setup';
-import { hashPassword } from '../src/common/security/password';
-import { loadConfig } from '../src/config/app-config';
 import { SmsService } from '../src/modules/auth/sms.service';
-import { PrismaService } from '../src/prisma/prisma.service';
-import { cookieLine, PASSWORD, TestClient } from './support';
+import type { PrismaService } from '../src/prisma/prisma.service';
+import { cookieLine, createTestApp, PASSWORD, TestClient, TestData } from './support';
 
-const RUN = `e2e${Date.now().toString(36)}`;
-const PHONE_BASE = Math.floor(Math.random() * 80_000_000);
 const sentOtps: { phone: string; code: string }[] = [];
 
 let app: NestFastifyApplication;
 let prisma: PrismaService;
+let data: TestData;
 let storeId = '';
-let userSeq = 0;
+let RUN = '';
 
-async function createUser(role: Role = 'cashier') {
-  userSeq += 1;
-  return prisma.user.create({
-    data: {
-      username: `${RUN}u${userSeq}`,
-      phone: `07${String(PHONE_BASE + userSeq).padStart(8, '0')}`,
-      name: `E2E ${userSeq}`,
-      role,
-      storeId,
-      passwordHash: await hashPassword(PASSWORD),
-    },
-  });
-}
-
+const createUser = (role?: Parameters<TestData['user']>[0]) => data.user(role);
 const client = () => new TestClient(app);
 
 beforeAll(async () => {
-  const config = loadConfig();
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
-    .overrideProvider(SmsService)
-    .useValue({
+  app = await createTestApp((builder) =>
+    builder.overrideProvider(SmsService).useValue({
       sendOtp: async (phone: string, code: string) => {
         sentOtps.push({ phone, code });
       },
-    })
-    .compile();
-  app = moduleRef.createNestApplication<NestFastifyApplication>(createAdapter(config));
-  await configureApp(app, config);
-  await app.init();
-  await app.getHttpAdapter().getInstance().ready();
-  prisma = app.get(PrismaService);
-  storeId = (await prisma.store.create({ data: { code: RUN, name: 'E2E Store' } })).id;
+    }),
+  );
+  data = TestData.for(app);
+  prisma = data.prisma;
+  RUN = data.run;
+  storeId = await data.store();
 });
 
 afterAll(async () => {
-  await prisma.user.deleteMany({ where: { username: { startsWith: RUN } } });
-  await prisma.store.deleteMany({ where: { code: RUN } });
-  await app.close();
+  await data?.cleanup();
+  await app?.close();
 });
 
 describe('Đăng nhập', () => {

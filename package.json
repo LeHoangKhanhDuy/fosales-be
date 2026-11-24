@@ -20,8 +20,8 @@
     "prisma:studio": "prisma studio",
     "seed": "prisma db seed",
     "test": "jest --passWithNoTests",
-    "pretest:e2e": "dotenv -e .env.test -- prisma db push --skip-generate --accept-data-loss",
-    "test:e2e": "dotenv -e .env.test -- jest --config test/jest-e2e.json --runInBand"
+    "pretest:e2e": "dotenv -e test/e2e.env -- node test/assert-test-env.js && dotenv -e test/e2e.env -- prisma db push --skip-generate --accept-data-loss",
+    "test:e2e": "dotenv -e test/e2e.env -- node --experimental-vm-modules --disable-warning=ExperimentalWarning node_modules/jest/bin/jest.js --config test/jest-e2e.json --runInBand"
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
