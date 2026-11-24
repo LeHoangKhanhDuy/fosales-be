@@ -22,7 +22,10 @@ const RECORD_SELECT = { ...UNIT_FIELDS, ...PRODUCT_COUNT } satisfies Prisma.Unit
 
 type UnitRow = Prisma.UnitGetPayload<{ select: typeof UNIT_FIELDS }> & { productCount?: number };
 
-const writeErrors = rethrowPrisma({ P2002: CatalogErrors.unitNameTaken, P2025: CatalogErrors.unitNotFound });
+const writeErrors = rethrowPrisma({
+  P2002: CatalogErrors.unitNameTaken,
+  P2025: CatalogErrors.unitNotFound,
+});
 
 @Injectable()
 export class UnitsService {
@@ -41,11 +44,18 @@ export class UnitsService {
   async create(dto: CreateUnitDto, userId: string, client: ClientInfo) {
     const unit = await this.prisma.unit
       .create({
-        data: { name: dto.name, nameKey: toNameKey(dto.name), description: dto.description ?? null },
+        data: {
+          name: dto.name,
+          nameKey: toNameKey(dto.name),
+          description: dto.description ?? null,
+        },
         select: RECORD_SELECT,
       })
       .catch(writeErrors);
-    await this.audit.log('UNIT_CREATED', client, { userId, meta: { id: unit.id, name: unit.name } });
+    await this.audit.log('UNIT_CREATED', client, {
+      userId,
+      meta: { id: unit.id, name: unit.name },
+    });
     return withProductCount(unit);
   }
 
@@ -56,7 +66,9 @@ export class UnitsService {
       description: dto.description,
     });
     if (!Object.keys(data).length) throw Errors.emptyUpdate();
-    const unit = await this.prisma.unit.update({ where: { id }, data, select: RECORD_SELECT }).catch(writeErrors);
+    const unit = await this.prisma.unit
+      .update({ where: { id }, data, select: RECORD_SELECT })
+      .catch(writeErrors);
     await this.audit.log('UNIT_UPDATED', client, { userId, meta: { id, name: unit.name } });
     return withProductCount(unit);
   }
@@ -64,23 +76,42 @@ export class UnitsService {
   async remove(id: string, replaceWith: string | undefined, userId: string, client: ClientInfo) {
     const result = await this.prisma
       .$transaction(async (tx) => {
-        const unit = await tx.unit.findUnique({ where: { id }, select: { name: true, ...PRODUCT_COUNT } });
+        const unit = await tx.unit.findUnique({
+          where: { id },
+          select: { name: true, ...PRODUCT_COUNT },
+        });
         if (!unit) throw CatalogErrors.unitNotFound();
-        if (replaceWith && (replaceWith === id || !(await tx.unit.count({ where: { id: replaceWith } })))) {
+        if (
+          replaceWith &&
+          (replaceWith === id || !(await tx.unit.count({ where: { id: replaceWith } })))
+        ) {
           throw CatalogErrors.unitReplaceTargetInvalid();
         }
         const productCount = unit._count.products;
         if (productCount && !replaceWith) throw CatalogErrors.unitInUse(productCount);
-        const moved = replaceWith
-          ? (await tx.product.updateMany({ where: { unitId: id }, data: { unitId: replaceWith } })).count
-          : 0;
+        const moved = (
+          await tx.product.updateMany({
+            where: { unitId: id },
+            data: { unitId: replaceWith ?? null },
+          })
+        ).count;
         await tx.unit.delete({ where: { id } });
         return { name: unit.name, moved };
       })
-      .catch(rethrowPrisma({ P2003: () => CatalogErrors.unitInUse(), P2025: CatalogErrors.unitNotFound }));
+      .catch(
+        rethrowPrisma({
+          P2003: () => CatalogErrors.unitInUse(),
+          P2025: CatalogErrors.unitNotFound,
+        }),
+      );
     await this.audit.log('UNIT_DELETED', client, {
       userId,
-      meta: { id, name: result.name, replaceWith: replaceWith ?? null, movedProducts: result.moved },
+      meta: {
+        id,
+        name: result.name,
+        replaceWith: replaceWith ?? null,
+        movedProducts: result.moved,
+      },
     });
   }
 }

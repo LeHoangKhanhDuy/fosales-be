@@ -3,7 +3,8 @@ import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsOptional, IsString, Length, MaxLength } from 'class-validator';
 import { collapseSpaces } from '../../../common/utils/text';
 
-const collapse = ({ value }: { value: unknown }) => (typeof value === 'string' ? collapseSpaces(value) : value);
+const collapse = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? collapseSpaces(value) : value;
 
 export class UpdateProfileDto {
   @ApiPropertyOptional({ example: 'Khánh Duy' })

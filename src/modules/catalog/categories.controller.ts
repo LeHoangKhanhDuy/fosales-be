@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import {
   ApiCookieAuth,
   ApiCreatedResponse,
@@ -12,7 +23,7 @@ import { ACCESS_COOKIE } from '../../common/constants';
 import { ApiErrors } from '../../common/decorators/api-errors.decorator';
 import { Client, CurrentUser } from '../../common/decorators/auth.decorators';
 import type { ClientInfo } from '../../common/http/client-info';
-import { ManageCatalog, uuidOr } from './catalog.decorators';
+import { ManagersOnly, uuidOr } from '../../common/decorators/managers-only.decorator';
 import { CatalogErrors } from './catalog.errors';
 import { CategoriesService } from './categories.service';
 import {
@@ -41,22 +52,30 @@ export class CategoriesController {
   }
 
   @Post()
-  @ManageCatalog(409)
+  @ManagersOnly(409)
   @ApiCreatedResponse({ type: CategoryRecordDto })
-  create(@Body() dto: CreateCategoryDto, @CurrentUser() user: AuthUser, @Client() client: ClientInfo) {
+  create(
+    @Body() dto: CreateCategoryDto,
+    @CurrentUser() user: AuthUser,
+    @Client() client: ClientInfo,
+  ) {
     return this.categories.create(dto, user.id, client);
   }
 
   @Put('order')
   @HttpCode(204)
-  @ManageCatalog()
+  @ManagersOnly()
   @ApiNoContentResponse({ description: 'Đã lưu thứ tự' })
-  async reorder(@Body() dto: ReorderCategoriesDto, @CurrentUser() user: AuthUser, @Client() client: ClientInfo) {
+  async reorder(
+    @Body() dto: ReorderCategoriesDto,
+    @CurrentUser() user: AuthUser,
+    @Client() client: ClientInfo,
+  ) {
     await this.categories.reorder(dto.ids, user.id, client);
   }
 
   @Patch(':id')
-  @ManageCatalog(404, 409)
+  @ManagersOnly(404, 409)
   @ApiOkResponse({ type: CategoryRecordDto })
   update(
     @categoryId() id: string,
@@ -69,7 +88,7 @@ export class CategoriesController {
 
   @Delete(':id')
   @HttpCode(204)
-  @ManageCatalog(404, 409)
+  @ManagersOnly(404, 409)
   @ApiNoContentResponse({ description: 'Đã xóa danh mục' })
   async remove(
     @categoryId() id: string,

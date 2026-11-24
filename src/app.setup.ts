@@ -1,6 +1,7 @@
 import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
 import fastifyHelmet from '@fastify/helmet';
+import fastifyMultipart from '@fastify/multipart';
 import { Logger, ValidationError, ValidationPipe } from '@nestjs/common';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -8,6 +9,7 @@ import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from
 import { AppException, defaultErrorBody } from './common/app-exception';
 import { ACCESS_COOKIE, CSRF_HEADER } from './common/constants';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { MAX_IMAGE_BYTES } from './modules/uploads/image-processor.service';
 import { AppConfig } from './config/app-config';
 
 const BODY_LIMIT = 1024 * 1024;
@@ -39,6 +41,10 @@ export async function configureApp(app: NestFastifyApplication, config: AppConfi
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', CSRF_HEADER],
     maxAge: 600,
+  });
+
+  await app.register(fastifyMultipart, {
+    limits: { fileSize: MAX_IMAGE_BYTES, files: 1, fields: 5, parts: 6 },
   });
 
   const fastify: FastifyInstance = app.getHttpAdapter().getInstance();
@@ -116,7 +122,11 @@ function setupSwagger(app: NestFastifyApplication) {
       .build(),
   );
   SwaggerModule.setup('api/docs', app, document, {
-    swaggerOptions: { withCredentials: true, persistAuthorization: true, requestInterceptor: attachCsrfHeader },
+    swaggerOptions: {
+      withCredentials: true,
+      persistAuthorization: true,
+      requestInterceptor: attachCsrfHeader,
+    },
   });
 }
 

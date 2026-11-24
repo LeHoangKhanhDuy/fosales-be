@@ -24,10 +24,14 @@ const CATEGORY_FIELDS = {
 
 const RECORD_SELECT = { ...CATEGORY_FIELDS, ...PRODUCT_COUNT } satisfies Prisma.CategorySelect;
 
-type CategoryRow = Prisma.CategoryGetPayload<{ select: typeof CATEGORY_FIELDS }> & { productCount?: number };
+type CategoryRow = Prisma.CategoryGetPayload<{ select: typeof CATEGORY_FIELDS }> & {
+  productCount?: number;
+};
 
-const byOrderThenName = (a: { sortOrder: number; name: string }, b: { sortOrder: number; name: string }) =>
-  a.sortOrder - b.sortOrder || compareVi(a.name, b.name);
+const byOrderThenName = (
+  a: { sortOrder: number; name: string },
+  b: { sortOrder: number; name: string },
+) => a.sortOrder - b.sortOrder || compareVi(a.name, b.name);
 
 const writeErrors = rethrowPrisma({
   P2002: CatalogErrors.categoryNameTaken,
@@ -44,7 +48,9 @@ export class CategoriesService {
   async list({ withCount, status }: CategoryQueryDto) {
     const where = status ? { status } : {};
     const rows: CategoryRow[] = withCount
-      ? (await this.prisma.category.findMany({ where, select: RECORD_SELECT })).map(withProductCount)
+      ? (await this.prisma.category.findMany({ where, select: RECORD_SELECT })).map(
+          withProductCount,
+        )
       : await this.prisma.category.findMany({ where, select: CATEGORY_FIELDS });
     return rows.sort(byOrderThenName);
   }
@@ -54,12 +60,20 @@ export class CategoriesService {
       .$transaction(async (tx) => {
         const { _max } = await tx.category.aggregate({ _max: { sortOrder: true } });
         return tx.category.create({
-          data: { ...this.fields(dto), name: dto.name, nameKey: toNameKey(dto.name), sortOrder: (_max.sortOrder ?? 0) + 1 },
+          data: {
+            ...this.fields(dto),
+            name: dto.name,
+            nameKey: toNameKey(dto.name),
+            sortOrder: (_max.sortOrder ?? 0) + 1,
+          },
           select: RECORD_SELECT,
         });
       })
       .catch(writeErrors);
-    await this.audit.log('CATEGORY_CREATED', client, { userId, meta: { id: category.id, name: category.name } });
+    await this.audit.log('CATEGORY_CREATED', client, {
+      userId,
+      meta: { id: category.id, name: category.name },
+    });
     return withProductCount(category);
   }
 
@@ -83,7 +97,8 @@ export class CategoriesService {
         tx.category.count(),
         tx.category.count({ where: { id: { in: ids } } }),
       ]);
-      if (total !== ids.length || matched !== ids.length) throw CatalogErrors.categoryOrderInvalid();
+      if (total !== ids.length || matched !== ids.length)
+        throw CatalogErrors.categoryOrderInvalid();
       await tx.$executeRaw`
         UPDATE categories AS c
         SET sort_order = o.position, updated_at = now()
@@ -96,20 +111,31 @@ export class CategoriesService {
   async remove(id: string, moveTo: string | undefined, userId: string, client: ClientInfo) {
     const result = await this.prisma
       .$transaction(async (tx) => {
-        const category = await tx.category.findUnique({ where: { id }, select: { name: true, ...PRODUCT_COUNT } });
+        const category = await tx.category.findUnique({
+          where: { id },
+          select: { name: true, ...PRODUCT_COUNT },
+        });
         if (!category) throw CatalogErrors.categoryNotFound();
         if (moveTo && (moveTo === id || !(await tx.category.count({ where: { id: moveTo } })))) {
           throw CatalogErrors.categoryMoveTargetInvalid();
         }
         const productCount = category._count.products;
         if (productCount && !moveTo) throw CatalogErrors.categoryInUse(productCount);
-        const moved = moveTo
-          ? (await tx.product.updateMany({ where: { categoryId: id }, data: { categoryId: moveTo } })).count
-          : 0;
+        const moved = (
+          await tx.product.updateMany({
+            where: { categoryId: id },
+            data: { categoryId: moveTo ?? null },
+          })
+        ).count;
         await tx.category.delete({ where: { id } });
         return { name: category.name, moved };
       })
-      .catch(rethrowPrisma({ P2003: () => CatalogErrors.categoryInUse(), P2025: CatalogErrors.categoryNotFound }));
+      .catch(
+        rethrowPrisma({
+          P2003: () => CatalogErrors.categoryInUse(),
+          P2025: CatalogErrors.categoryNotFound,
+        }),
+      );
     await this.audit.log('CATEGORY_DELETED', client, {
       userId,
       meta: { id, name: result.name, moveTo: moveTo ?? null, movedProducts: result.moved },

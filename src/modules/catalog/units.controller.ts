@@ -12,9 +12,15 @@ import { ACCESS_COOKIE } from '../../common/constants';
 import { ApiErrors } from '../../common/decorators/api-errors.decorator';
 import { Client, CurrentUser } from '../../common/decorators/auth.decorators';
 import type { ClientInfo } from '../../common/http/client-info';
-import { ManageCatalog, uuidOr } from './catalog.decorators';
+import { ManagersOnly, uuidOr } from '../../common/decorators/managers-only.decorator';
 import { CatalogErrors } from './catalog.errors';
-import { CreateUnitDto, DeleteUnitQueryDto, UnitQueryDto, UnitRecordDto, UpdateUnitDto } from './dto/unit.dto';
+import {
+  CreateUnitDto,
+  DeleteUnitQueryDto,
+  UnitQueryDto,
+  UnitRecordDto,
+  UpdateUnitDto,
+} from './dto/unit.dto';
 import { UnitsService } from './units.service';
 
 const unitId = () => Param('id', uuidOr(CatalogErrors.unitNotFound));
@@ -34,22 +40,27 @@ export class UnitsController {
   }
 
   @Post()
-  @ManageCatalog(409)
+  @ManagersOnly(409)
   @ApiCreatedResponse({ type: UnitRecordDto })
   create(@Body() dto: CreateUnitDto, @CurrentUser() user: AuthUser, @Client() client: ClientInfo) {
     return this.units.create(dto, user.id, client);
   }
 
   @Patch(':id')
-  @ManageCatalog(404, 409)
+  @ManagersOnly(404, 409)
   @ApiOkResponse({ type: UnitRecordDto })
-  update(@unitId() id: string, @Body() dto: UpdateUnitDto, @CurrentUser() user: AuthUser, @Client() client: ClientInfo) {
+  update(
+    @unitId() id: string,
+    @Body() dto: UpdateUnitDto,
+    @CurrentUser() user: AuthUser,
+    @Client() client: ClientInfo,
+  ) {
     return this.units.update(id, dto, user.id, client);
   }
 
   @Delete(':id')
   @HttpCode(204)
-  @ManageCatalog(404, 409)
+  @ManagersOnly(404, 409)
   @ApiNoContentResponse({ description: 'Đã xóa đơn vị tính' })
   async remove(
     @unitId() id: string,
