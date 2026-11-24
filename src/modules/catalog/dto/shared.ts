@@ -2,7 +2,9 @@ import { Transform } from 'class-transformer';
 import { collapseSpaces } from '../../../common/utils/text';
 
 export const TrimName = () =>
-  Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? collapseSpaces(value) : value));
+  Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? collapseSpaces(value) : value,
+  );
 
 export const NullableText = () =>
   Transform(({ value }: { value: unknown }) =>

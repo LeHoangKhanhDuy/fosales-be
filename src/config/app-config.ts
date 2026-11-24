@@ -13,6 +13,18 @@ export class AppConfig {
   readonly trustProxy: boolean | number | string;
   readonly logLevel: Env['LOG_LEVEL'];
   readonly openSwagger: boolean;
+  readonly storage: {
+    driver: 'local' | 's3';
+    uploadDir: string;
+    s3: {
+      endpoint?: string;
+      region: string;
+      bucket: string;
+      accessKeyId: string;
+      secretAccessKey: string;
+      publicUrl: string;
+    };
+  };
   private readonly allowedOrigins: Set<string>;
 
   constructor(env: Env) {
@@ -27,6 +39,18 @@ export class AppConfig {
     this.trustProxy = env.TRUST_PROXY;
     this.logLevel = env.LOG_LEVEL;
     this.openSwagger = env.OPEN_SWAGGER;
+    this.storage = {
+      driver: env.STORAGE_DRIVER,
+      uploadDir: env.UPLOAD_DIR,
+      s3: {
+        endpoint: env.S3_ENDPOINT,
+        region: env.S3_REGION,
+        bucket: env.S3_BUCKET ?? '',
+        accessKeyId: env.S3_ACCESS_KEY_ID ?? '',
+        secretAccessKey: env.S3_SECRET_ACCESS_KEY ?? '',
+        publicUrl: env.S3_PUBLIC_URL ?? '',
+      },
+    };
     this.allowedOrigins = new Set(env.CORS_ORIGINS);
   }
 

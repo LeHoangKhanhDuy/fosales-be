@@ -47,7 +47,11 @@ export class CreateCategoryDto {
 export class UpdateCategoryDto extends PartialType(CreateCategoryDto) {}
 
 export class ReorderCategoriesDto {
-  @ApiProperty({ type: [String], format: 'uuid', description: 'Toàn bộ id danh mục theo thứ tự mới' })
+  @ApiProperty({
+    type: [String],
+    format: 'uuid',
+    description: 'Toàn bộ id danh mục theo thứ tự mới',
+  })
   @IsArray({ message: 'Danh sách thứ tự không hợp lệ' })
   @ArrayMaxSize(1000, { message: 'Danh sách thứ tự quá dài' })
   @IsUUID('all', { each: true, message: 'Id danh mục không hợp lệ' })

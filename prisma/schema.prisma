@@ -44,6 +44,32 @@ enum AuditAction {
   UNIT_CREATED
   UNIT_UPDATED
   UNIT_DELETED
+  PRODUCT_CREATED
+  PRODUCT_UPDATED
+  PRODUCT_STATUS_CHANGED
+  PRODUCT_DELETED
+  STOCK_ADJUSTED
+  IMAGE_UPLOADED
+}
+
+enum ProductStatus {
+  active
+  inactive
+}
+
+enum ImageFit {
+  cover
+  contain
+  auto
+}
+
+enum MovementType {
+  initial
+  import
+  sale
+  return
+  adjust_in
+  adjust_out
 }
 
 enum CategoryStatus {
@@ -59,6 +85,8 @@ model Store {
   createdAt DateTime    @default(now()) @map("created_at")
   updatedAt DateTime    @updatedAt @map("updated_at")
   users     User[]
+  stocks    ProductStock[]
+  movements StockMovement[]
 
   @@map("stores")
 }
@@ -82,6 +110,7 @@ model User {
   sessions          Session[]
   resetOtps         PasswordResetOtp[]
   auditLogs         AuditLog[]
+  stockMovements    StockMovement[]
 
   @@index([storeId])
   @@map("users")
@@ -166,16 +195,70 @@ model Unit {
 }
 
 model Product {
-  id         String   @id @default(uuid()) @db.Uuid
-  name       String   @db.VarChar(200)
-  categoryId String   @map("category_id") @db.Uuid
-  unitId     String   @map("unit_id") @db.Uuid
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  unit       Unit     @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  id            String          @id @default(uuid()) @db.Uuid
+  sku           String          @db.VarChar(32)
+  skuKey        String?         @unique @map("sku_key") @db.VarChar(32)
+  barcode       String?         @db.VarChar(14)
+  barcodeKey    String?         @unique @map("barcode_key") @db.VarChar(14)
+  name          String          @db.VarChar(150)
+  searchKey     String          @map("search_key")
+  categoryId    String?         @map("category_id") @db.Uuid
+  unitId        String?         @map("unit_id") @db.Uuid
+  price         Int
+  originalPrice Int?            @map("original_price")
+  costPrice     Int?            @map("cost_price")
+  minStock      Int             @default(10) @map("min_stock")
+  image         String?         @db.VarChar(500)
+  imageFit      ImageFit        @default(auto) @map("image_fit")
+  isBestSeller  Boolean         @default(false) @map("is_best_seller")
+  status        ProductStatus   @default(active)
+  description   String?         @db.VarChar(1000)
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+  deletedAt     DateTime?       @map("deleted_at")
+  category      Category?       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  unit          Unit?           @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  stocks        ProductStock[]
+  movements     StockMovement[]
 
   @@index([categoryId])
   @@index([unitId])
+  @@index([status, deletedAt])
+  @@index([createdAt])
   @@map("products")
+}
+
+model ProductStock {
+  productId String   @map("product_id") @db.Uuid
+  storeId   String   @map("store_id") @db.Uuid
+  quantity  Int      @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at")
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@id([productId, storeId])
+  @@index([storeId])
+  @@map("product_stocks")
+}
+
+model StockMovement {
+  id          String       @id @default(uuid()) @db.Uuid
+  productId   String       @map("product_id") @db.Uuid
+  storeId     String       @map("store_id") @db.Uuid
+  type        MovementType
+  quantity    Int
+  before      Int
+  after       Int
+  reason      String?      @db.VarChar(255)
+  note        String?      @db.VarChar(500)
+  refCode     String?      @map("ref_code") @db.VarChar(50)
+  createdById String       @map("created_by_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
+  product     Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  store       Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  createdBy   User         @relation(fields: [createdById], references: [id])
+
+  @@index([productId, createdAt])
+  @@index([storeId, createdAt])
+  @@map("stock_movements")
 }

@@ -33,7 +33,10 @@ export class ProfileService {
   ) {}
 
   async get(userId: string): Promise<Profile> {
-    const profile = await this.prisma.user.findUnique({ where: { id: userId }, select: PROFILE_SELECT });
+    const profile = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: PROFILE_SELECT,
+    });
     if (!profile) throw Errors.unauthenticated();
     return profile;
   }

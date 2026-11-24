@@ -1,8 +1,8 @@
 import { applyDecorators, ParseUUIDPipe } from '@nestjs/common';
-import { Roles } from '../../common/decorators/auth.decorators';
-import { ApiErrors } from '../../common/decorators/api-errors.decorator';
+import { ApiErrors } from './api-errors.decorator';
+import { Roles } from './auth.decorators';
 
-export const ManageCatalog = (...statuses: number[]) =>
+export const ManagersOnly = (...statuses: number[]) =>
   applyDecorators(Roles('admin', 'manager'), ApiErrors(400, 401, 403, ...statuses));
 
 export const uuidOr = (error: () => Error) => new ParseUUIDPipe({ exceptionFactory: error });

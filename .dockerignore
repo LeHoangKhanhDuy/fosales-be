@@ -10,3 +10,5 @@ test
 *.log
 Dockerfile
 docker-compose.yml
+uploads
+tmp

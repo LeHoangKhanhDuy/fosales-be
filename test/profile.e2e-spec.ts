@@ -51,7 +51,9 @@ describe('Profile', () => {
     expect(res.status).toBe(200);
     expect(res.body.name).toBe('Nguyễn Văn An');
     expect((await client.call('get', '/auth/me')).body.name).toBe('Nguyễn Văn An');
-    const audit = await data.prisma.auditLog.findFirst({ where: { userId: user.id, action: 'PROFILE_UPDATED' } });
+    const audit = await data.prisma.auditLog.findFirst({
+      where: { userId: user.id, action: 'PROFILE_UPDATED' },
+    });
     expect(audit?.meta).toEqual({ fields: ['name'] });
   });
 
@@ -67,7 +69,10 @@ describe('Profile', () => {
     expect(wrong.status).toBe(400);
     expect(wrong.body.code).toBe('AUTH_INVALID_PASSWORD');
 
-    const ok = await client.call('patch', '/profile', { phone: `+84${phone.slice(1)}`, currentPassword: PASSWORD });
+    const ok = await client.call('patch', '/profile', {
+      phone: `+84${phone.slice(1)}`,
+      currentPassword: PASSWORD,
+    });
     expect(ok.status).toBe(200);
     expect(ok.body.phone).toBe(phone);
   });
@@ -76,10 +81,16 @@ describe('Profile', () => {
     const other = await data.user();
     const { client } = await signedIn();
 
-    const invalid = await client.call('patch', '/profile', { phone: '12345', currentPassword: PASSWORD });
+    const invalid = await client.call('patch', '/profile', {
+      phone: '12345',
+      currentPassword: PASSWORD,
+    });
     expect(invalid.status).toBe(400);
 
-    const taken = await client.call('patch', '/profile', { phone: other.phone, currentPassword: PASSWORD });
+    const taken = await client.call('patch', '/profile', {
+      phone: other.phone,
+      currentPassword: PASSWORD,
+    });
     expect(taken.status).toBe(409);
     expect(taken.body.code).toBe('PHONE_TAKEN');
   });
