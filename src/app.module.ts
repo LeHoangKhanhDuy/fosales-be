@@ -12,6 +12,7 @@ import { loggerParams } from './config/logger.config';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
+import { ProfileModule } from './modules/profile/profile.module';
 import { StoresModule } from './modules/stores/stores.module';
 import { UsersModule } from './modules/users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -26,6 +27,7 @@ import { PrismaModule } from './prisma/prisma.module';
     UsersModule,
     StoresModule,
     AuthModule,
+    ProfileModule,
     HealthModule,
   ],
   providers: [

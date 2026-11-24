@@ -1,10 +1,17 @@
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
+import { Test, type TestingModuleBuilder } from '@nestjs/testing';
+import type { Role } from '@prisma/client';
 import request from 'supertest';
+import { AppModule } from '../src/app.module';
+import { configureApp, createAdapter } from '../src/app.setup';
+import { hashPassword } from '../src/common/security/password';
+import { loadConfig } from '../src/config/app-config';
+import { PrismaService } from '../src/prisma/prisma.service';
 
 export const ORIGIN = 'http://localhost:5173';
 export const PASSWORD = 'Secret123';
 
-type Method = 'get' | 'post' | 'delete';
+type Method = 'get' | 'post' | 'patch' | 'delete';
 
 interface CallOptions {
   csrf?: string | null;
@@ -71,5 +78,57 @@ export class TestClient {
       if (!value || expired) delete this.jar[name];
       else this.jar[name] = value;
     }
+  }
+}
+
+export async function createTestApp(customize: (builder: TestingModuleBuilder) => TestingModuleBuilder = (b) => b) {
+  if (process.env.NODE_ENV !== 'test') throw new Error('E2E chỉ chạy với NODE_ENV=test (test/e2e.env)');
+  const config = loadConfig();
+  const moduleRef = await customize(Test.createTestingModule({ imports: [AppModule] })).compile();
+  const app = moduleRef.createNestApplication<NestFastifyApplication>(createAdapter(config));
+  await configureApp(app, config);
+  await app.init();
+  await app.getHttpAdapter().getInstance().ready();
+  return app;
+}
+
+export class TestData {
+  readonly run = `e2e${Date.now().toString(36)}${Math.floor(Math.random() * 1000)}`;
+  private readonly phoneBase = Math.floor(Math.random() * 80_000_000);
+  private seq = 0;
+  private storeId?: string;
+
+  constructor(readonly prisma: PrismaService) {}
+
+  static for(app: NestFastifyApplication) {
+    return new TestData(app.get(PrismaService));
+  }
+
+  async store() {
+    this.storeId ??= (await this.prisma.store.create({ data: { code: this.run, name: 'E2E Store' } })).id;
+    return this.storeId;
+  }
+
+  async user(role: Role = 'cashier') {
+    this.seq += 1;
+    return this.prisma.user.create({
+      data: {
+        username: `${this.run}u${this.seq}`,
+        phone: this.phone(this.seq),
+        name: `E2E ${this.seq}`,
+        role,
+        storeId: await this.store(),
+        passwordHash: await hashPassword(PASSWORD),
+      },
+    });
+  }
+
+  phone(offset: number) {
+    return `07${String(this.phoneBase + offset).padStart(8, '0')}`;
+  }
+
+  async cleanup() {
+    await this.prisma.user.deleteMany({ where: { username: { startsWith: this.run } } });
+    await this.prisma.store.deleteMany({ where: { code: this.run } });
   }
 }
