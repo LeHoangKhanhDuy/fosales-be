@@ -227,6 +227,32 @@ Nhà cung cấp và công nợ dùng chung toàn chuỗi. Công nợ chỉ thay 
 - Audit: `PURCHASE_ORDER_CREATED/UPDATED/PLACED/CANCELLED`, `PURCHASE_RECEIVING_DISCARDED`, `GOODS_RECEIVED`.
 - Seed (`prisma/seed-purchasing.ts`) tạo 11 đơn giống mock FE bằng chính service (tồn kho, giá vốn, công nợ đúng), sau đó chỉ lùi ngày tạo/nhận.
 
+## Endpoint Khách hàng & Thành viên (prefix `/api`)
+
+Khách hàng và cấu hình thành viên dùng chung toàn chuỗi. Điểm chỉ đổi qua `PointLedger.apply(tx, { customerId, type, points, refCode?, reason?, userId, allowNegative? })` (khóa `customers` `FOR UPDATE`, ghi `point_logs` kèm `balance`, âm → `409 CUSTOMER_POINTS_INSUFFICIENT`). Chi tiêu và hạng chỉ đổi qua `MembershipService` (`applyOrder`, `revokeOrder`, `redeem`, `discountFor`, `refreshTier`) — module Đơn hàng sẽ gọi các hàm này. Hạng = hạng có `minSpent` lớn nhất ≤ `legacySpent + spent`, tính lại mỗi khi chi tiêu hoặc cấu hình đổi.
+
+| Method | Path | Quyền | Ghi chú |
+|---|---|---|---|
+| GET | `/customers` | manager | `keyword` (không dấu: tên/mã/email; chỉ số ≥ 3 chữ số → SĐT/mã), `tier`, `segment=birthday\|new30\|inactive60\|blocked`, `sort=newest\|spent\|points\|recent\|name`, `page`, `pageSize` → `{ items, total, page, pageSize, tierCounts }` (`tierCounts` bỏ qua `tier`) |
+| GET | `/customers/stats` | manager | `{ total, new30, active30, returning, points, birthday }` |
+| GET | `/customers/search` | mọi role | `q`, `limit` (≤ 50) → `CustomerLite[]`, chỉ khách active, khớp SĐT/mã chính xác lên đầu |
+| GET | `/customers/lookup` | mọi role | `phone` hoặc `code` → `CustomerLite`; không có → 404, bị khóa → `409 CUSTOMER_BLOCKED` |
+| GET | `/customers/:id` | manager | `CustomerWithStats` (`stats`, `totalSpent`, `nextTier`) |
+| POST | `/customers` | mọi role | Mã `KH000001` tự sinh; SĐT chuẩn hóa `+84/84 → 0`; cashier chỉ gửi được name/phone/email/gender/birthday (field khác bị bỏ qua) và nhận `CustomerLite`; `legacySpent`, `openingPoints` chỉ admin |
+| PATCH | `/customers/:id` | manager | Sửa một phần; `legacySpent` chỉ admin, đổi → tính lại hạng |
+| PATCH | `/customers/:id/status` | manager | `{ status: active\|blocked, reason? }` |
+| DELETE | `/customers/:id` | manager | 204; có đơn hoặc log điểm khác `opening` → `409 CUSTOMER_HAS_TRANSACTIONS` (`details { orders, pointLogs }`) |
+| GET | `/customers/:id/points` | manager | `page`, `pageSize`, `type` → lịch sử điểm mới nhất trước |
+| POST | `/customers/:id/points` | manager | `{ points, type: adjust\|redeem, reason }`, header `Idempotency-Key` → 201 `{ customer, log }`; `redeem` luôn trừ `\|points\|` |
+| GET | `/customers/:id/orders` | manager | `items: []` cho tới khi có module Đơn hàng |
+| GET | `/membership` | mọi role | `{ amountPerPoint, pointValue, tiers[] }` (cache 60 giây; tự tạo cấu hình mặc định nếu DB trống) |
+| PUT | `/membership` | admin | Thay toàn bộ cấu hình → `{ settings, changedTiers }`; sai → `400 MEMBERSHIP_INVALID` (`details { field, tier? }`) |
+
+- `legacySpent`, `spent`, `minSpent` lưu `BIGINT` (vượt giới hạn Int4 2,1 tỷ), JSON trả số.
+- Mã lỗi: `CUSTOMER_NOT_FOUND` (404); `CUSTOMER_PHONE_TAKEN` (`details { customerId, name }`), `CUSTOMER_BLOCKED`, `CUSTOMER_POINTS_INSUFFICIENT`, `CUSTOMER_HAS_TRANSACTIONS` (409); `MEMBERSHIP_INVALID` (400); field chỉ dành cho admin → 403 `AUTH_FORBIDDEN`.
+- Audit: `CUSTOMER_CREATED/UPDATED/STATUS_CHANGED/DELETED`, `POINTS_ADJUSTED`, `MEMBERSHIP_UPDATED`.
+- Seed (`prisma/seed-customers.ts`): cấu hình mặc định + 24 khách từ mock FE qua chính service; điểm đầu kỳ = `floor(legacySpent / amountPerPoint)` (log `opening`), khách bị khóa không có điểm.
+
 ## Endpoint Cửa hàng
 
 | Method | Path | Ghi chú |
