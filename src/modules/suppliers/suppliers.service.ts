@@ -16,7 +16,9 @@ import {
   supplierStatsSql,
   supplierSummarySql,
   tabCountsSql,
+  topProductsSql,
   type SummaryRow,
+  type TopProductRow,
   type SupplierStatsRow,
   type TabCountsRow,
 } from './suppliers.query';
@@ -54,7 +56,7 @@ export class SuppliersService {
       active: row.active,
       suspended: row.suspended,
       purchased30: money(row.purchased30),
-      openOrders: 0,
+      openOrders: row.openOrders,
       debt: money(row.debt),
       debtors: row.debtors,
       overdue: money(row.overdue),
@@ -140,16 +142,51 @@ export class SuppliersService {
     return { items: rows.map(toPayment), total, page: query.page, pageSize: query.pageSize };
   }
 
-  async topProducts(id: string) {
+  async topProducts(id: string, limit: number) {
     await this.assertExists(id);
-    return [];
+    const rows = await this.prisma.$queryRaw<TopProductRow[]>(topProductsSql(id, limit));
+    if (!rows.length) return [];
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: rows.map((row) => row.productId) } },
+      select: {
+        id: true,
+        name: true,
+        sku: true,
+        barcode: true,
+        categoryId: true,
+        image: true,
+        imageFit: true,
+        unit: { select: { name: true } },
+      },
+    });
+    const byId = new Map(products.map((product) => [product.id, product]));
+    return rows.flatMap((row) => {
+      const product = byId.get(row.productId);
+      if (!product) return [];
+      return [
+        {
+          productId: row.productId,
+          name: product.name,
+          sku: product.sku,
+          barcode: product.barcode,
+          unit: product.unit?.name ?? '',
+          categoryId: product.categoryId ?? '',
+          image: product.image,
+          imageFit: product.imageFit,
+          qty: row.qty,
+          value: money(row.value),
+          lastCost: row.lastCost,
+          lastReceivedAt: row.lastAt,
+        },
+      ];
+    });
   }
 
   private async assertExists(id: string) {
     if (!(await this.prisma.supplier.count({ where: { id } }))) throw SupplierErrors.notFound();
   }
 
-  private reactivateExpired() {
+  reactivateExpired() {
     return this.prisma.$executeRaw(reactivateExpiredSql());
   }
 

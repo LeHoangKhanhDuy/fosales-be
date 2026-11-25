@@ -16,6 +16,8 @@ export interface SummaryRow {
   overdue: bigint;
   nextDueAt: Date | null;
   lastReceiptAt: Date | null;
+  orderCount: number;
+  openOrders: number;
 }
 
 export interface TabCountsRow {
@@ -36,6 +38,7 @@ export interface SupplierStatsRow {
   debtors: number;
   overdue: bigint;
   overdueCount: number;
+  openOrders: number;
 }
 
 const TABS: Record<SupplierTab, Prisma.Sql> = {
@@ -91,22 +94,33 @@ function summary(filter: SupplierFilter) {
       FROM remaining
       GROUP BY supplier_id
     ),
+    orders AS (
+      SELECT supplier_id,
+        count(*) FILTER (WHERE status <> 'draft') AS order_count,
+        count(*) FILTER (WHERE status IN ('ordered', 'receiving', 'partial')) AS open_orders
+      FROM purchase_orders
+      GROUP BY supplier_id
+    ),
     list AS (
       SELECT s.id, s.status, s.debt, s.name_key, s.created_at,
         COALESCE(t.purchased, 0) AS purchased,
         COALESCE(t.paid, 0) AS paid,
         COALESCE(d.overdue, 0) AS overdue,
         d.next_due_at,
-        t.last_receipt_at
+        t.last_receipt_at,
+        COALESCE(o.order_count, 0) AS order_count,
+        COALESCE(o.open_orders, 0) AS open_orders
       FROM suppliers s
       LEFT JOIN totals t ON t.supplier_id = s.id
       LEFT JOIN due d ON d.supplier_id = s.id
+      LEFT JOIN orders o ON o.supplier_id = s.id
       WHERE ${Prisma.join(conditions, ' AND ')}
     )`;
 }
 
 const SUMMARY_COLUMNS = Prisma.sql`id, purchased::bigint AS purchased, paid::bigint AS paid,
-  overdue::bigint AS overdue, next_due_at AS "nextDueAt", last_receipt_at AS "lastReceiptAt"`;
+  overdue::bigint AS overdue, next_due_at AS "nextDueAt", last_receipt_at AS "lastReceiptAt",
+  order_count::int AS "orderCount", open_orders::int AS "openOrders"`;
 
 export const supplierPageSql = (
   filter: SupplierFilter,
@@ -145,8 +159,30 @@ export const supplierStatsSql = () => Prisma.sql`${summary({})}
     COALESCE(SUM(debt), 0)::bigint AS debt,
     (count(*) FILTER (WHERE debt > 0))::int AS debtors,
     COALESCE(SUM(overdue), 0)::bigint AS overdue,
-    (count(*) FILTER (WHERE overdue > 0))::int AS "overdueCount"
+    (count(*) FILTER (WHERE overdue > 0))::int AS "overdueCount",
+    COALESCE(SUM(open_orders), 0)::int AS "openOrders"
   FROM list`;
+
+export interface TopProductRow {
+  productId: string;
+  qty: number;
+  value: bigint;
+  lastCost: number;
+  lastAt: Date;
+}
+
+export const topProductsSql = (supplierId: string, limit: number) => Prisma.sql`
+  SELECT l.product_id AS "productId",
+    SUM(l.accepted_qty)::int AS qty,
+    SUM(l.accepted_qty::bigint * l.unit_cost)::bigint AS value,
+    (array_agg(l.unit_cost ORDER BY r.received_at DESC, l.line_no DESC))[1]::int AS "lastCost",
+    MAX(r.received_at) AS "lastAt"
+  FROM goods_receipt_lines l
+  JOIN goods_receipts r ON r.id = l.receipt_id
+  WHERE r.supplier_id = ${supplierId}::uuid AND l.accepted_qty > 0
+  GROUP BY l.product_id
+  ORDER BY value DESC, qty DESC, l.product_id
+  LIMIT ${limit}`;
 
 export const reactivateExpiredSql = () => Prisma.sql`
   UPDATE suppliers

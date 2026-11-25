@@ -170,6 +170,9 @@ export class TestData {
 
   async cleanup() {
     const supplier = { supplier: { nameKey: { startsWith: this.run } } };
+    const store = { store: { code: this.run } };
+    await this.prisma.goodsReceipt.deleteMany({ where: store });
+    await this.prisma.purchaseOrder.deleteMany({ where: store });
     await this.prisma.supplierLedgerEntry.deleteMany({ where: supplier });
     await this.prisma.supplierPayment.deleteMany({ where: supplier });
     await this.prisma.supplier.deleteMany({ where: { nameKey: { startsWith: this.run } } });

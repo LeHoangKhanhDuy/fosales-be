@@ -166,11 +166,14 @@ export class SupplierCommandsService {
         select: { code: true, name: true },
       });
       if (!supplier) throw SupplierErrors.notFound();
-      const [ledgerCount, paymentCount] = await Promise.all([
+      const [ledgerCount, paymentCount, orderCount] = await Promise.all([
         tx.supplierLedgerEntry.count({ where: { supplierId: id } }),
         tx.supplierPayment.count({ where: { supplierId: id } }),
+        tx.purchaseOrder.count({ where: { supplierId: id } }),
       ]);
-      if (ledgerCount || paymentCount) throw SupplierErrors.hasTransactions(ledgerCount);
+      if (ledgerCount || paymentCount || orderCount) {
+        throw SupplierErrors.hasTransactions(ledgerCount, orderCount);
+      }
       await tx.supplier.delete({ where: { id } });
       return supplier;
     });
