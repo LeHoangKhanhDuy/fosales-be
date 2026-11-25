@@ -5,6 +5,7 @@ import { toNameKey } from '../src/common/utils/text';
 import { formatSku, productSearchKey } from '../src/modules/products/products.utils';
 import { CATEGORIES, PRODUCTS, UNITS } from './seed-data';
 import { seedHistory } from './seed-history';
+import { seedSuppliers, STORE_INFO } from './seed-suppliers';
 
 const DEV_PASSWORD = '123456';
 
@@ -72,8 +73,8 @@ async function main() {
   }
   const store = await prisma.store.upsert({
     where: { code: 'hcm-01' },
-    update: { name: 'FoTech Mart Quận 1', status: 'active' },
-    create: { code: 'hcm-01', name: 'FoTech Mart Quận 1' },
+    update: { name: 'FoTech Mart Quận 1', status: 'active', ...STORE_INFO },
+    create: { code: 'hcm-01', name: 'FoTech Mart Quận 1', ...STORE_INFO },
   });
   const passwordHash = await hashPassword(DEV_PASSWORD);
   const users = new Map<string, string>();
@@ -94,9 +95,10 @@ async function main() {
     manager: users.get('quanly') ?? '',
     cashier: users.get('thungan') ?? '',
   });
+  const suppliers = await seedSuppliers(prisma, catalog.categories);
   console.log(
     `Seed xong: store ${store.code}, ${USERS.length} tài khoản (mật khẩu ${DEV_PASSWORD}), ` +
-      `${UNITS.length} đơn vị, ${CATEGORIES.length} danh mục, thêm ${products}/${PRODUCTS.length} sản phẩm, lịch sử kho cho ${history} sản phẩm`,
+      `${UNITS.length} đơn vị, ${CATEGORIES.length} danh mục, thêm ${products}/${PRODUCTS.length} sản phẩm, lịch sử kho cho ${history} sản phẩm, thêm ${suppliers.created}/${suppliers.total} nhà cung cấp`,
   );
 }
 
