@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import type { AuthUser } from '../../common/auth-user';
+import { nextDailyCode } from '../../common/daily-code';
 import type { ClientInfo } from '../../common/http/client-info';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -10,7 +10,6 @@ import { paymentInclude, toPayment } from './supplier.mapper';
 import { SupplierLedger } from './supplier-ledger.service';
 import { SupplierErrors } from './suppliers.errors';
 import { SuppliersService } from './suppliers.service';
-import { vnDateCode } from './suppliers.utils';
 
 const SCOPE = 'supplier.payment';
 
@@ -39,7 +38,7 @@ export class SupplierPaymentsService {
       }
       if (!(await tx.supplier.count({ where: { id: supplierId } })))
         throw SupplierErrors.notFound();
-      const code = await this.nextCode(tx);
+      const code = await nextDailyCode(tx, 'supplier_payments', 'PC');
       const payment = await tx.supplierPayment.create({
         data: {
           code,
@@ -91,14 +90,5 @@ export class SupplierPaymentsService {
       this.suppliers.get(supplierId),
     ]);
     return { payment: toPayment(payment), supplier };
-  }
-
-  private async nextCode(tx: Prisma.TransactionClient) {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('fosales:supplier-payment-code'))`;
-    const prefix = `PC${vnDateCode()}-`;
-    const [{ max }] = await tx.$queryRaw<{ max: number }[]>`
-      SELECT COALESCE(max(substring(code FROM ${prefix.length + 1}::int)::int), 0)::int AS max
-      FROM supplier_payments WHERE code LIKE ${`${prefix}%`}`;
-    return `${prefix}${String(max + 1).padStart(4, '0')}`;
   }
 }

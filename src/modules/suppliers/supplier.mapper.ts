@@ -33,8 +33,8 @@ export function toSupplierItem(row: SupplierRow, summary?: Omit<SummaryRow, 'id'
     ...supplier,
     categoryIds: categories.map((category) => category.categoryId),
     summary: {
-      orderCount: 0,
-      openOrders: 0,
+      orderCount: summary?.orderCount ?? 0,
+      openOrders: summary?.openOrders ?? 0,
       purchased: money(summary?.purchased),
       paid: money(summary?.paid),
       debt: money(debt),

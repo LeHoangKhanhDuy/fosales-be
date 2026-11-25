@@ -57,6 +57,21 @@ enum AuditAction {
   SUPPLIER_DELETED
   SUPPLIER_PAYMENT_CREATED
   STORE_UPDATED
+  PURCHASE_ORDER_CREATED
+  PURCHASE_ORDER_UPDATED
+  PURCHASE_ORDER_PLACED
+  PURCHASE_ORDER_CANCELLED
+  PURCHASE_RECEIVING_DISCARDED
+  GOODS_RECEIVED
+}
+
+enum PurchaseOrderStatus {
+  draft
+  ordered
+  receiving
+  partial
+  completed
+  cancelled
 }
 
 enum SupplierStatus {
@@ -116,6 +131,8 @@ model Store {
   users     User[]
   stocks    ProductStock[]
   movements StockMovement[]
+  purchaseOrders PurchaseOrder[]
+  goodsReceipts  GoodsReceipt[]
 
   @@map("stores")
 }
@@ -143,6 +160,10 @@ model User {
   idempotencyKeys   IdempotencyKey[]
   supplierEntries   SupplierLedgerEntry[]
   supplierPayments  SupplierPayment[]
+  purchaseOrders    PurchaseOrder[]
+  purchaseEvents    PurchaseOrderEvent[]
+  receivingSessions ReceivingSession[]
+  goodsReceipts     GoodsReceipt[]
 
   @@index([storeId])
   @@map("users")
@@ -253,6 +274,8 @@ model Product {
   unit          Unit?           @relation(fields: [unitId], references: [id], onDelete: Restrict)
   stocks        ProductStock[]
   movements     StockMovement[]
+  purchaseItems PurchaseOrderItem[]
+  receiptLines  GoodsReceiptLine[]
 
   @@index([categoryId])
   @@index([unitId])
@@ -337,6 +360,8 @@ model Supplier {
   categories      SupplierCategory[]
   ledger          SupplierLedgerEntry[]
   payments        SupplierPayment[]
+  purchaseOrders  PurchaseOrder[]
+  goodsReceipts   GoodsReceipt[]
 
   @@index([status])
   @@index([createdAt])
@@ -390,4 +415,129 @@ model SupplierPayment {
 
   @@index([supplierId, paidAt])
   @@map("supplier_payments")
+}
+
+model PurchaseOrder {
+  id           String              @id @default(uuid()) @db.Uuid
+  code         String              @unique @db.VarChar(20)
+  storeId      String              @map("store_id") @db.Uuid
+  supplierId   String              @map("supplier_id") @db.Uuid
+  status       PurchaseOrderStatus @default(draft)
+  discount     Int                 @default(0)
+  note         String?             @db.VarChar(500)
+  expectedDate DateTime            @map("expected_date") @db.Date
+  placedAt     DateTime?           @map("placed_at")
+  completedAt  DateTime?           @map("completed_at")
+  cancelReason String?             @map("cancel_reason") @db.VarChar(200)
+  cancelledAt  DateTime?           @map("cancelled_at")
+  createdById  String              @map("created_by_id") @db.Uuid
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+  store        Store               @relation(fields: [storeId], references: [id])
+  supplier     Supplier            @relation(fields: [supplierId], references: [id])
+  createdBy    User                @relation(fields: [createdById], references: [id])
+  items        PurchaseOrderItem[]
+  events       PurchaseOrderEvent[]
+  receipts     GoodsReceipt[]
+  session      ReceivingSession?
+
+  @@index([storeId, status])
+  @@index([storeId, createdAt])
+  @@index([supplierId, createdAt])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id          String        @id @default(uuid()) @db.Uuid
+  poId        String        @map("po_id") @db.Uuid
+  productId   String        @map("product_id") @db.Uuid
+  lineNo      Int           @map("line_no")
+  orderedQty  Int           @map("ordered_qty")
+  unitCost    Int           @map("unit_cost")
+  packSize    Int           @default(1) @map("pack_size")
+  receivedQty Int           @default(0) @map("received_qty")
+  damagedQty  Int           @default(0) @map("damaged_qty")
+  po          PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  product     Product       @relation(fields: [productId], references: [id])
+
+  @@unique([poId, productId])
+  @@index([productId])
+  @@map("purchase_order_items")
+}
+
+model PurchaseOrderEvent {
+  id    String        @id @default(uuid()) @db.Uuid
+  poId  String        @map("po_id") @db.Uuid
+  label String        @db.VarChar(200)
+  at    DateTime      @default(now())
+  byId  String        @map("by_id") @db.Uuid
+  po    PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  by    User          @relation(fields: [byId], references: [id])
+
+  @@index([poId, at])
+  @@map("purchase_order_events")
+}
+
+model ReceivingSession {
+  poId        String        @id @map("po_id") @db.Uuid
+  data        Json
+  startedById String        @map("started_by_id") @db.Uuid
+  startedAt   DateTime      @default(now()) @map("started_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  version     Int           @default(1)
+  po          PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  startedBy   User          @relation(fields: [startedById], references: [id])
+
+  @@map("receiving_sessions")
+}
+
+model GoodsReceipt {
+  id            String             @id @default(uuid()) @db.Uuid
+  code          String             @unique @db.VarChar(20)
+  poId          String             @map("po_id") @db.Uuid
+  storeId       String             @map("store_id") @db.Uuid
+  supplierId    String             @map("supplier_id") @db.Uuid
+  supplierDocNo String             @map("supplier_doc_no") @db.VarChar(50)
+  packageCount  Int                @default(0) @map("package_count")
+  packagingOk   Boolean            @default(true) @map("packaging_ok")
+  deliveredBy   String?            @map("delivered_by") @db.VarChar(100)
+  note          String?            @db.VarChar(500)
+  approvedBy    String?            @map("approved_by") @db.VarChar(100)
+  grossValue    Int                @map("gross_value")
+  discount      Int                @default(0)
+  value         Int
+  receivedById  String             @map("received_by_id") @db.Uuid
+  receivedAt    DateTime           @default(now()) @map("received_at")
+  po            PurchaseOrder      @relation(fields: [poId], references: [id])
+  store         Store              @relation(fields: [storeId], references: [id])
+  supplier      Supplier           @relation(fields: [supplierId], references: [id])
+  receivedBy    User               @relation(fields: [receivedById], references: [id])
+  lines         GoodsReceiptLine[]
+
+  @@index([poId])
+  @@index([supplierId, receivedAt])
+  @@index([storeId, receivedAt])
+  @@map("goods_receipts")
+}
+
+model GoodsReceiptLine {
+  id          String       @id @default(uuid()) @db.Uuid
+  receiptId   String       @map("receipt_id") @db.Uuid
+  productId   String       @map("product_id") @db.Uuid
+  lineNo      Int          @map("line_no")
+  expectedQty Int          @map("expected_qty")
+  scannedQty  Int          @map("scanned_qty")
+  acceptedQty Int          @map("accepted_qty")
+  damagedQty  Int          @map("damaged_qty")
+  returnedQty Int          @default(0) @map("returned_qty")
+  unitCost    Int          @map("unit_cost")
+  extra       Boolean      @default(false)
+  expiryDate  DateTime?    @map("expiry_date") @db.Date
+  lotNo       String?      @map("lot_no") @db.VarChar(40)
+  receipt     GoodsReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  product     Product      @relation(fields: [productId], references: [id])
+
+  @@index([receiptId])
+  @@index([productId])
+  @@map("goods_receipt_lines")
 }
