@@ -4,7 +4,9 @@ import { hashPassword } from '../src/common/security/password';
 import { toNameKey } from '../src/common/utils/text';
 import { formatSku, productSearchKey } from '../src/modules/products/products.utils';
 import { CATEGORIES, PRODUCTS, UNITS } from './seed-data';
+import { seedCustomers } from './seed-customers';
 import { seedHistory } from './seed-history';
+import { seedPurchasing } from './seed-purchasing';
 import { seedSuppliers, STORE_INFO } from './seed-suppliers';
 
 const DEV_PASSWORD = '123456';
@@ -96,9 +98,14 @@ async function main() {
     cashier: users.get('thungan') ?? '',
   });
   const suppliers = await seedSuppliers(prisma, catalog.categories);
+  const customers = await seedCustomers(prisma, store.id, users.get('admin') ?? '');
+  const orders = await seedPurchasing(prisma, store.id, {
+    admin: users.get('admin') ?? '',
+    manager: users.get('quanly') ?? '',
+  });
   console.log(
     `Seed xong: store ${store.code}, ${USERS.length} tài khoản (mật khẩu ${DEV_PASSWORD}), ` +
-      `${UNITS.length} đơn vị, ${CATEGORIES.length} danh mục, thêm ${products}/${PRODUCTS.length} sản phẩm, lịch sử kho cho ${history} sản phẩm, thêm ${suppliers.created}/${suppliers.total} nhà cung cấp`,
+      `${UNITS.length} đơn vị, ${CATEGORIES.length} danh mục, thêm ${products}/${PRODUCTS.length} sản phẩm, lịch sử kho cho ${history} sản phẩm, thêm ${suppliers.created}/${suppliers.total} nhà cung cấp, ${orders} đơn đặt hàng, ${customers} khách hàng`,
   );
 }
 

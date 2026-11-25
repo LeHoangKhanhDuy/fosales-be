@@ -3,7 +3,6 @@ import { toNameKey } from '../../common/utils/text';
 export const SUPPLIER_CODE_PATTERN = /^[A-Z0-9_-]{2,20}$/;
 export const MAX_PAYMENT = 10_000_000_000;
 export const DAY_MS = 24 * 60 * 60 * 1000;
-const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 export const formatSupplierCode = (n: number) => `NCC${String(n).padStart(3, '0')}`;
 
@@ -25,8 +24,5 @@ export function supplierSearchKey(fields: {
 }
 
 export const searchTerm = (keyword: string) => compact(keyword);
-
-export const vnDateCode = (at = new Date()) =>
-  new Date(at.getTime() + VN_OFFSET_MS).toISOString().slice(2, 10).replace(/-/g, '');
 
 export const money = (value: bigint | number | null | undefined) => Number(value ?? 0);

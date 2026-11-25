@@ -180,10 +180,11 @@ export class SuppliersController {
 
   @Get(':id/top-products')
   @ApiOkResponse({
-    description: 'Sản phẩm nhập nhiều nhất (trả [] cho tới khi có module Nhập hàng)',
+    description:
+      'Sản phẩm nhập nhiều nhất từ phiếu nhập: qty = Σ acceptedQty, value = Σ acceptedQty × unitCost, lastCost = giá dòng mới nhất',
   })
   @ApiErrors(404)
-  topProducts(@supplierId() id: string, @Query() _query: TopProductsQueryDto) {
-    return this.suppliers.topProducts(id);
+  topProducts(@supplierId() id: string, @Query() query: TopProductsQueryDto) {
+    return this.suppliers.topProducts(id, query.limit);
   }
 }

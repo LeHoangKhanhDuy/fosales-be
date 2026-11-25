@@ -57,6 +57,27 @@ enum AuditAction {
   SUPPLIER_DELETED
   SUPPLIER_PAYMENT_CREATED
   STORE_UPDATED
+  PURCHASE_ORDER_CREATED
+  PURCHASE_ORDER_UPDATED
+  PURCHASE_ORDER_PLACED
+  PURCHASE_ORDER_CANCELLED
+  PURCHASE_RECEIVING_DISCARDED
+  GOODS_RECEIVED
+  CUSTOMER_CREATED
+  CUSTOMER_UPDATED
+  CUSTOMER_STATUS_CHANGED
+  CUSTOMER_DELETED
+  POINTS_ADJUSTED
+  MEMBERSHIP_UPDATED
+}
+
+enum PurchaseOrderStatus {
+  draft
+  ordered
+  receiving
+  partial
+  completed
+  cancelled
 }
 
 enum SupplierStatus {
@@ -116,6 +137,8 @@ model Store {
   users     User[]
   stocks    ProductStock[]
   movements StockMovement[]
+  purchaseOrders PurchaseOrder[]
+  goodsReceipts  GoodsReceipt[]
 
   @@map("stores")
 }
@@ -143,6 +166,12 @@ model User {
   idempotencyKeys   IdempotencyKey[]
   supplierEntries   SupplierLedgerEntry[]
   supplierPayments  SupplierPayment[]
+  purchaseOrders    PurchaseOrder[]
+  purchaseEvents    PurchaseOrderEvent[]
+  receivingSessions ReceivingSession[]
+  goodsReceipts     GoodsReceipt[]
+  customers         Customer[]
+  pointLogs         PointLog[]
 
   @@index([storeId])
   @@map("users")
@@ -253,6 +282,8 @@ model Product {
   unit          Unit?           @relation(fields: [unitId], references: [id], onDelete: Restrict)
   stocks        ProductStock[]
   movements     StockMovement[]
+  purchaseItems PurchaseOrderItem[]
+  receiptLines  GoodsReceiptLine[]
 
   @@index([categoryId])
   @@index([unitId])
@@ -337,6 +368,8 @@ model Supplier {
   categories      SupplierCategory[]
   ledger          SupplierLedgerEntry[]
   payments        SupplierPayment[]
+  purchaseOrders  PurchaseOrder[]
+  goodsReceipts   GoodsReceipt[]
 
   @@index([status])
   @@index([createdAt])
@@ -390,4 +423,227 @@ model SupplierPayment {
 
   @@index([supplierId, paidAt])
   @@map("supplier_payments")
+}
+
+model PurchaseOrder {
+  id           String              @id @default(uuid()) @db.Uuid
+  code         String              @unique @db.VarChar(20)
+  storeId      String              @map("store_id") @db.Uuid
+  supplierId   String              @map("supplier_id") @db.Uuid
+  status       PurchaseOrderStatus @default(draft)
+  discount     Int                 @default(0)
+  note         String?             @db.VarChar(500)
+  expectedDate DateTime            @map("expected_date") @db.Date
+  placedAt     DateTime?           @map("placed_at")
+  completedAt  DateTime?           @map("completed_at")
+  cancelReason String?             @map("cancel_reason") @db.VarChar(200)
+  cancelledAt  DateTime?           @map("cancelled_at")
+  createdById  String              @map("created_by_id") @db.Uuid
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+  store        Store               @relation(fields: [storeId], references: [id])
+  supplier     Supplier            @relation(fields: [supplierId], references: [id])
+  createdBy    User                @relation(fields: [createdById], references: [id])
+  items        PurchaseOrderItem[]
+  events       PurchaseOrderEvent[]
+  receipts     GoodsReceipt[]
+  session      ReceivingSession?
+
+  @@index([storeId, status])
+  @@index([storeId, createdAt])
+  @@index([supplierId, createdAt])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id          String        @id @default(uuid()) @db.Uuid
+  poId        String        @map("po_id") @db.Uuid
+  productId   String        @map("product_id") @db.Uuid
+  lineNo      Int           @map("line_no")
+  orderedQty  Int           @map("ordered_qty")
+  unitCost    Int           @map("unit_cost")
+  packSize    Int           @default(1) @map("pack_size")
+  receivedQty Int           @default(0) @map("received_qty")
+  damagedQty  Int           @default(0) @map("damaged_qty")
+  po          PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  product     Product       @relation(fields: [productId], references: [id])
+
+  @@unique([poId, productId])
+  @@index([productId])
+  @@map("purchase_order_items")
+}
+
+model PurchaseOrderEvent {
+  id    String        @id @default(uuid()) @db.Uuid
+  poId  String        @map("po_id") @db.Uuid
+  label String        @db.VarChar(200)
+  at    DateTime      @default(now())
+  byId  String        @map("by_id") @db.Uuid
+  po    PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  by    User          @relation(fields: [byId], references: [id])
+
+  @@index([poId, at])
+  @@map("purchase_order_events")
+}
+
+model ReceivingSession {
+  poId        String        @id @map("po_id") @db.Uuid
+  data        Json
+  startedById String        @map("started_by_id") @db.Uuid
+  startedAt   DateTime      @default(now()) @map("started_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  version     Int           @default(1)
+  po          PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  startedBy   User          @relation(fields: [startedById], references: [id])
+
+  @@map("receiving_sessions")
+}
+
+model GoodsReceipt {
+  id            String             @id @default(uuid()) @db.Uuid
+  code          String             @unique @db.VarChar(20)
+  poId          String             @map("po_id") @db.Uuid
+  storeId       String             @map("store_id") @db.Uuid
+  supplierId    String             @map("supplier_id") @db.Uuid
+  supplierDocNo String             @map("supplier_doc_no") @db.VarChar(50)
+  packageCount  Int                @default(0) @map("package_count")
+  packagingOk   Boolean            @default(true) @map("packaging_ok")
+  deliveredBy   String?            @map("delivered_by") @db.VarChar(100)
+  note          String?            @db.VarChar(500)
+  approvedBy    String?            @map("approved_by") @db.VarChar(100)
+  grossValue    Int                @map("gross_value")
+  discount      Int                @default(0)
+  value         Int
+  receivedById  String             @map("received_by_id") @db.Uuid
+  receivedAt    DateTime           @default(now()) @map("received_at")
+  po            PurchaseOrder      @relation(fields: [poId], references: [id])
+  store         Store              @relation(fields: [storeId], references: [id])
+  supplier      Supplier           @relation(fields: [supplierId], references: [id])
+  receivedBy    User               @relation(fields: [receivedById], references: [id])
+  lines         GoodsReceiptLine[]
+
+  @@index([poId])
+  @@index([supplierId, receivedAt])
+  @@index([storeId, receivedAt])
+  @@map("goods_receipts")
+}
+
+model GoodsReceiptLine {
+  id          String       @id @default(uuid()) @db.Uuid
+  receiptId   String       @map("receipt_id") @db.Uuid
+  productId   String       @map("product_id") @db.Uuid
+  lineNo      Int          @map("line_no")
+  expectedQty Int          @map("expected_qty")
+  scannedQty  Int          @map("scanned_qty")
+  acceptedQty Int          @map("accepted_qty")
+  damagedQty  Int          @map("damaged_qty")
+  returnedQty Int          @default(0) @map("returned_qty")
+  unitCost    Int          @map("unit_cost")
+  extra       Boolean      @default(false)
+  expiryDate  DateTime?    @map("expiry_date") @db.Date
+  lotNo       String?      @map("lot_no") @db.VarChar(40)
+  receipt     GoodsReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  product     Product      @relation(fields: [productId], references: [id])
+
+  @@index([receiptId])
+  @@index([productId])
+  @@map("goods_receipt_lines")
+}
+
+enum CustomerTier {
+  retail
+  silver
+  gold
+  diamond
+}
+
+enum CustomerStatus {
+  active
+  blocked
+}
+
+enum Gender {
+  male
+  female
+  other
+}
+
+enum PointLogType {
+  opening
+  earn
+  revoke
+  adjust
+  redeem
+}
+
+model Customer {
+  id           String         @id @default(uuid()) @db.Uuid
+  code         String         @unique @db.VarChar(12)
+  name         String         @db.VarChar(100)
+  phone        String         @unique @db.VarChar(10)
+  email        String?        @db.VarChar(150)
+  gender       Gender?
+  birthday     DateTime?      @db.Date
+  address      String?        @db.VarChar(255)
+  note         String?        @db.VarChar(500)
+  status       CustomerStatus @default(active)
+  tier         CustomerTier   @default(retail)
+  points       Int            @default(0)
+  legacySpent  BigInt         @default(0) @map("legacy_spent")
+  spent        BigInt         @default(0)
+  orderCount   Int            @default(0) @map("order_count")
+  firstOrderAt DateTime?      @map("first_order_at")
+  lastOrderAt  DateTime?      @map("last_order_at")
+  searchKey    String         @map("search_key")
+  givenNameKey String         @map("given_name_key")
+  createdById  String?        @map("created_by_id") @db.Uuid
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  createdBy    User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  pointLogs    PointLog[]
+
+  @@index([tier])
+  @@index([status])
+  @@index([lastOrderAt])
+  @@index([createdAt])
+  @@map("customers")
+}
+
+model PointLog {
+  id          String       @id @default(uuid()) @db.Uuid
+  customerId  String       @map("customer_id") @db.Uuid
+  type        PointLogType
+  points      Int
+  balance     Int
+  refCode     String?      @map("ref_code") @db.VarChar(30)
+  reason      String?      @db.VarChar(120)
+  createdById String       @map("created_by_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
+  customer    Customer     @relation(fields: [customerId], references: [id])
+  createdBy   User         @relation(fields: [createdById], references: [id])
+
+  @@index([customerId, createdAt])
+  @@map("point_logs")
+}
+
+model MembershipSettings {
+  id             Int      @id @default(1)
+  amountPerPoint Int      @default(10000) @map("amount_per_point")
+  pointValue     Int      @default(100) @map("point_value")
+  updatedById    String?  @map("updated_by_id") @db.Uuid
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("membership_settings")
+}
+
+model MembershipTier {
+  tier            CustomerTier @id
+  label           String       @db.VarChar(30)
+  minSpent        BigInt       @map("min_spent")
+  discountPercent Decimal      @map("discount_percent") @db.Decimal(5, 2)
+  pointMultiplier Decimal      @map("point_multiplier") @db.Decimal(4, 2)
+  perks           String       @db.VarChar(200)
+  sortOrder       Int          @map("sort_order")
+
+  @@map("membership_tiers")
 }

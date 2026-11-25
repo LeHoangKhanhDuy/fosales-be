@@ -187,17 +187,71 @@ Nhà cung cấp và công nợ dùng chung toàn chuỗi. Công nợ chỉ thay 
 | POST | `/suppliers` | Mã trống → tự sinh `NCCxxx` (advisory lock) → 201 |
 | PATCH | `/suppliers/:id` | Sửa một phần; `categoryIds` thay toàn bộ |
 | PATCH | `/suppliers/:id/status` | `{ status, reason?, until? }`; `suspended` cần lý do, `until` ở tương lai |
-| DELETE | `/suppliers/:id` | Chỉ khi chưa có bút toán/phiếu chi → 204; ngược lại `409 SUPPLIER_HAS_TRANSACTIONS` |
+| DELETE | `/suppliers/:id` | Chỉ khi chưa có bút toán/phiếu chi/đơn đặt hàng → 204; ngược lại `409 SUPPLIER_HAS_TRANSACTIONS` |
 | GET | `/suppliers/:id/ledger` | `page`, `pageSize`, `from`, `to` → bút toán mới nhất trước (`balance` = số dư sau bút toán) |
 | GET | `/suppliers/:id/payments` | Phiếu chi, `paidBy` là tên người chi |
 | POST | `/suppliers/:id/payments` | `{ amount, method: cash\|transfer, reference?, note? }`, header `Idempotency-Key` → 201 `{ payment, supplier }`; mã `PCyyMMdd-0001` |
-| GET | `/suppliers/:id/top-products` | Trả `[]` cho tới khi có module Nhập hàng |
+| GET | `/suppliers/:id/top-products` | `limit` (mặc định 8) → từ dòng phiếu nhập: `qty` = Σ acceptedQty, `value` = Σ acceptedQty × unitCost, `lastCost` = giá dòng mới nhất |
 
-- `summary`: `purchased` = Σ phiếu nhập − Σ trả hàng; `paid` = Σ thanh toán; `debt`; `overdue` phân bổ FIFO (mọi khoản giảm nợ trừ dần vào phiếu nhập theo thời gian, phần còn lại của phiếu đã quá hạn); `nextDueAt`; `lastReceiptAt`; `orderCount`/`openOrders` = 0 cho tới khi có module Nhập hàng. Danh sách/tab/thống kê là một CTE SQL (window function).
+- `summary`: `purchased` = Σ phiếu nhập − Σ trả hàng; `paid` = Σ thanh toán; `debt`; `overdue` phân bổ FIFO (mọi khoản giảm nợ trừ dần vào phiếu nhập theo thời gian, phần còn lại của phiếu đã quá hạn); `nextDueAt`; `lastReceiptAt`; `orderCount` = số đơn khác `draft`, `openOrders` = đơn `ordered|receiving|partial` (`stats.openOrders` = tổng). Danh sách/tab/thống kê là một CTE SQL (window function).
 - NCC tạm ngưng có `suspendedUntil` đã qua được tự chuyển về `active` ngay khi đọc (list/detail/options/stats).
 - Tiền của NCC lưu `BIGINT` (Int của PostgreSQL chỉ tới ~2,1 tỷ, không đủ cho hạn mức thanh toán 10 tỷ), trả về JSON dạng số.
 - Mã lỗi: `SUPPLIER_NOT_FOUND` (404); `SUPPLIER_CODE_TAKEN`, `SUPPLIER_NAME_TAKEN`, `SUPPLIER_PHONE_TAKEN`, `SUPPLIER_TAX_CODE_TAKEN`, `SUPPLIER_HAS_TRANSACTIONS`, `SUPPLIER_PAYMENT_EXCEEDS_DEBT`, `SUPPLIER_NOT_ACTIVE` (409); `SUPPLIER_CATEGORY_INVALID` (400).
 - Audit: `SUPPLIER_CREATED/UPDATED/STATUS_CHANGED/DELETED`, `SUPPLIER_PAYMENT_CREATED`.
+
+## Endpoint Nhập hàng (prefix `/api`, chỉ `admin`/`manager`)
+
+Đơn đặt hàng NCC gắn `storeId` của user. Trạng thái: `draft → ordered → receiving → partial/completed`, `draft|ordered → cancelled`. Mã do server sinh theo ngày (giờ VN, advisory lock): đơn `DHyyMMdd-0001`, phiếu nhập `PNyyMMdd-0001` (`src/common/daily-code.ts`, dùng chung với phiếu chi `PC`).
+
+| Method | Path | Ghi chú |
+|---|---|---|
+| GET | `/purchase-orders` | `keyword` (không dấu: mã đơn, NCC, tên/SKU/barcode SP trong đơn), `tab=open\|all\|draft\|ordered\|partial\|completed\|cancelled` (mặc định `open`; `ordered` gồm `receiving`), `supplierId`, `overdue=true`, `from`, `to`, `page`, `pageSize` → `{ items, total, page, pageSize, tabCounts }`; tab `open` sắp theo `expectedDate` tăng dần |
+| GET | `/purchase-orders/summary` | `{ open, overdue, receiving, draft }` |
+| GET | `/purchase-orders/suggestions` | `supplierId`, `limit` → SP có tồn ≤ `minStock` thuộc danh mục NCC; `orderedQty = max(minStock×3 − stock, minStock)`, `unitCost` = giá nhập gần nhất từ NCC → `costPrice` → `round(price×0.75)` |
+| GET | `/purchase-orders/:id` | Đơn đầy đủ: `items`, `history`, `receipts`, `draftReceipt`, `draftVersion`, `totals` |
+| POST | `/purchase-orders` | `{ supplierId, expectedDate, items[{ productId, orderedQty, unitCost, packSize? }], discount?, note?, place? }` → 201 |
+| PATCH | `/purchase-orders/:id` | Chỉ khi `draft` (ngược lại `409 PURCHASE_INVALID_STATUS`) |
+| POST | `/purchase-orders/:id/place` | `draft → ordered` |
+| POST | `/purchase-orders/:id/cancel` | `{ reason }`; `draft\|ordered → cancelled` |
+| PUT | `/purchase-orders/:id/receiving` | Body = `ReceivingDraft` của FE (≤ 1MB, `lines` ≤ 500, `scans` ≤ 50), header `If-Match: <version>` tùy chọn, `?takeover=true` → `{ order, version }`; status → `receiving` |
+| DELETE | `/purchase-orders/:id/receiving` | Bỏ nháp → `partial` (nếu đã có phiếu nhập) hoặc `ordered` |
+| POST | `/purchase-orders/:id/receive` | Header **bắt buộc** `Idempotency-Key`; `{ checkIn, lines, note?, approvedBy? }` → 201 `{ order, receipt }` |
+| GET | `/goods-receipts` | `supplierId`, `poId`, `keyword` (mã PN/DH, số chứng từ NCC), `from`, `to`, `page`, `pageSize` |
+| GET | `/goods-receipts/:id` | Phiếu nhập + `poCode`, `supplierName`, `supplier { code, address, taxCode, phone }` (in phiếu) |
+
+- Phiên kiểm đếm khóa theo người đang giữ: người khác lưu/nhận trong 10 phút kể từ lần lưu cuối → `409 PURCHASE_RECEIVING_LOCKED` (`details { by, since }`); `If-Match` lệch → `409 PURCHASE_RECEIVING_CONFLICT` (`details.version`).
+- Nhận hàng (một transaction, khóa đơn `FOR UPDATE`): server tự tính lại `acceptedQty`/`returnedQty` theo công thức FE → tạo phiếu nhập → `StockLedger.apply` type `import` (refCode = mã PN, note lô/HSD) → giá vốn bình quân `round100((tồn×giá cũ + SL×giá nhập)/(tồn+SL))` → cập nhật dòng đơn (thiếu + `cancel` → `orderedQty = receivedQty`; dòng ngoài đơn được nhận → thêm dòng) → `SupplierLedger.apply` `receipt` (`dueAt` theo kỳ hạn NCC) → `partial`/`completed`.
+- Chiết khấu đơn phân bổ theo giá trị: phiếu = `round(discount × gross / subtotal)`, phiếu hoàn tất nhận phần còn lại.
+- Chênh lệch giá trị nhận so với giá trị còn chờ > 5% mà thiếu `approvedBy` → `400 PURCHASE_APPROVAL_REQUIRED` (`details { expectedValue, acceptedValue }`).
+- Mã lỗi khác: `PURCHASE_ORDER_NOT_FOUND`, `GOODS_RECEIPT_NOT_FOUND` (404); `PURCHASE_ITEMS_REQUIRED`, `PURCHASE_PRODUCT_INVALID`, `PURCHASE_DISCOUNT_INVALID`, `PURCHASE_LINE_INVALID`, `PURCHASE_RECEIVE_EMPTY`, `IDEMPOTENCY_KEY_REQUIRED` (400); `SUPPLIER_NOT_ACTIVE` (409).
+- Audit: `PURCHASE_ORDER_CREATED/UPDATED/PLACED/CANCELLED`, `PURCHASE_RECEIVING_DISCARDED`, `GOODS_RECEIVED`.
+- Seed (`prisma/seed-purchasing.ts`) tạo 11 đơn giống mock FE bằng chính service (tồn kho, giá vốn, công nợ đúng), sau đó chỉ lùi ngày tạo/nhận.
+
+## Endpoint Khách hàng & Thành viên (prefix `/api`)
+
+Khách hàng và cấu hình thành viên dùng chung toàn chuỗi. Điểm chỉ đổi qua `PointLedger.apply(tx, { customerId, type, points, refCode?, reason?, userId, allowNegative? })` (khóa `customers` `FOR UPDATE`, ghi `point_logs` kèm `balance`, âm → `409 CUSTOMER_POINTS_INSUFFICIENT`). Chi tiêu và hạng chỉ đổi qua `MembershipService` (`applyOrder`, `revokeOrder`, `redeem`, `discountFor`, `refreshTier`) — module Đơn hàng sẽ gọi các hàm này. Hạng = hạng có `minSpent` lớn nhất ≤ `legacySpent + spent`, tính lại mỗi khi chi tiêu hoặc cấu hình đổi.
+
+| Method | Path | Quyền | Ghi chú |
+|---|---|---|---|
+| GET | `/customers` | manager | `keyword` (không dấu: tên/mã/email; chỉ số ≥ 3 chữ số → SĐT/mã), `tier`, `segment=birthday\|new30\|inactive60\|blocked`, `sort=newest\|spent\|points\|recent\|name`, `page`, `pageSize` → `{ items, total, page, pageSize, tierCounts }` (`tierCounts` bỏ qua `tier`) |
+| GET | `/customers/stats` | manager | `{ total, new30, active30, returning, points, birthday }` |
+| GET | `/customers/search` | mọi role | `q`, `limit` (≤ 50) → `CustomerLite[]`, chỉ khách active, khớp SĐT/mã chính xác lên đầu |
+| GET | `/customers/lookup` | mọi role | `phone` hoặc `code` → `CustomerLite`; không có → 404, bị khóa → `409 CUSTOMER_BLOCKED` |
+| GET | `/customers/:id` | manager | `CustomerWithStats` (`stats`, `totalSpent`, `nextTier`) |
+| POST | `/customers` | mọi role | Mã `KH000001` tự sinh; SĐT chuẩn hóa `+84/84 → 0`; cashier chỉ gửi được name/phone/email/gender/birthday (field khác bị bỏ qua) và nhận `CustomerLite`; `legacySpent`, `openingPoints` chỉ admin |
+| PATCH | `/customers/:id` | manager | Sửa một phần; `legacySpent` chỉ admin, đổi → tính lại hạng |
+| PATCH | `/customers/:id/status` | manager | `{ status: active\|blocked, reason? }` |
+| DELETE | `/customers/:id` | manager | 204; có đơn hoặc log điểm khác `opening` → `409 CUSTOMER_HAS_TRANSACTIONS` (`details { orders, pointLogs }`) |
+| GET | `/customers/:id/points` | manager | `page`, `pageSize`, `type` → lịch sử điểm mới nhất trước |
+| POST | `/customers/:id/points` | manager | `{ points, type: adjust\|redeem, reason }`, header `Idempotency-Key` → 201 `{ customer, log }`; `redeem` luôn trừ `\|points\|` |
+| GET | `/customers/:id/orders` | manager | `items: []` cho tới khi có module Đơn hàng |
+| GET | `/membership` | mọi role | `{ amountPerPoint, pointValue, tiers[] }` (cache 60 giây; tự tạo cấu hình mặc định nếu DB trống) |
+| PUT | `/membership` | admin | Thay toàn bộ cấu hình → `{ settings, changedTiers }`; sai → `400 MEMBERSHIP_INVALID` (`details { field, tier? }`) |
+
+- `legacySpent`, `spent`, `minSpent` lưu `BIGINT` (vượt giới hạn Int4 2,1 tỷ), JSON trả số.
+- Mã lỗi: `CUSTOMER_NOT_FOUND` (404); `CUSTOMER_PHONE_TAKEN` (`details { customerId, name }`), `CUSTOMER_BLOCKED`, `CUSTOMER_POINTS_INSUFFICIENT`, `CUSTOMER_HAS_TRANSACTIONS` (409); `MEMBERSHIP_INVALID` (400); field chỉ dành cho admin → 403 `AUTH_FORBIDDEN`.
+- Audit: `CUSTOMER_CREATED/UPDATED/STATUS_CHANGED/DELETED`, `POINTS_ADJUSTED`, `MEMBERSHIP_UPDATED`.
+- Seed (`prisma/seed-customers.ts`): cấu hình mặc định + 24 khách từ mock FE qua chính service; điểm đầu kỳ = `floor(legacySpent / amountPerPoint)` (log `opening`), khách bị khóa không có điểm.
 
 ## Endpoint Cửa hàng
 
