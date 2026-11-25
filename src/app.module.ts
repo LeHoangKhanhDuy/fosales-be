@@ -12,11 +12,13 @@ import { loggerParams } from './config/logger.config';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
 import { ProductsModule } from './modules/products/products.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { HealthModule } from './modules/health/health.module';
 import { ProfileModule } from './modules/profile/profile.module';
 import { StoresModule } from './modules/stores/stores.module';
+import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { UsersModule } from './modules/users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -33,6 +35,8 @@ import { PrismaModule } from './prisma/prisma.module';
     ProfileModule,
     CatalogModule,
     ProductsModule,
+    InventoryModule,
+    SuppliersModule,
     UploadsModule,
     HealthModule,
   ],

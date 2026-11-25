@@ -25,6 +25,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
   private toBody(exception: unknown): ErrorBody {
     if (exception instanceof AppException) return { ...exception.body };
     if (exception instanceof HttpException) return defaultErrorBody(exception.getStatus());
+    const status = (exception as { statusCode?: unknown } | null)?.statusCode;
+    if (typeof status === 'number' && status >= 400 && status < 600)
+      return defaultErrorBody(status);
     return defaultErrorBody(500);
   }
 

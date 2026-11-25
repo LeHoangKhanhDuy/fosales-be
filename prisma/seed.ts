@@ -4,6 +4,8 @@ import { hashPassword } from '../src/common/security/password';
 import { toNameKey } from '../src/common/utils/text';
 import { formatSku, productSearchKey } from '../src/modules/products/products.utils';
 import { CATEGORIES, PRODUCTS, UNITS } from './seed-data';
+import { seedHistory } from './seed-history';
+import { seedSuppliers, STORE_INFO } from './seed-suppliers';
 
 const DEV_PASSWORD = '123456';
 
@@ -38,7 +40,6 @@ async function seedCatalog() {
 
 async function seedProducts(
   storeId: string,
-  createdById: string,
   { units, categories }: Awaited<ReturnType<typeof seedCatalog>>,
 ) {
   let created = 0;
@@ -59,19 +60,6 @@ async function seedProducts(
         costPrice: Math.round((item.price * (0.68 + ((seq * 7) % 13) / 100)) / 100) * 100,
         createdAt: new Date(Date.UTC(2026, 8, 1 + seq * 2, 3)),
         stocks: { create: { storeId, quantity: stock } },
-        movements: stock
-          ? {
-              create: {
-                storeId,
-                createdById,
-                type: 'initial',
-                quantity: stock,
-                before: 0,
-                after: stock,
-                reason: 'Tồn đầu kỳ',
-              },
-            }
-          : undefined,
       },
     });
     created += 1;
@@ -85,8 +73,8 @@ async function main() {
   }
   const store = await prisma.store.upsert({
     where: { code: 'hcm-01' },
-    update: { name: 'FoTech Mart Quận 1', status: 'active' },
-    create: { code: 'hcm-01', name: 'FoTech Mart Quận 1' },
+    update: { name: 'FoTech Mart Quận 1', status: 'active', ...STORE_INFO },
+    create: { code: 'hcm-01', name: 'FoTech Mart Quận 1', ...STORE_INFO },
   });
   const passwordHash = await hashPassword(DEV_PASSWORD);
   const users = new Map<string, string>();
@@ -100,10 +88,17 @@ async function main() {
     users.set(user.username, row.id);
   }
   const catalog = await seedCatalog();
-  const products = await seedProducts(store.id, users.get('admin') ?? '', catalog);
+  const products = await seedProducts(store.id, catalog);
+  const skus = PRODUCTS.map((_, index) => formatSku(index + 1));
+  const history = await seedHistory(prisma, store.id, skus, {
+    admin: users.get('admin') ?? '',
+    manager: users.get('quanly') ?? '',
+    cashier: users.get('thungan') ?? '',
+  });
+  const suppliers = await seedSuppliers(prisma, catalog.categories);
   console.log(
     `Seed xong: store ${store.code}, ${USERS.length} tài khoản (mật khẩu ${DEV_PASSWORD}), ` +
-      `${UNITS.length} đơn vị, ${CATEGORIES.length} danh mục, thêm ${products}/${PRODUCTS.length} sản phẩm`,
+      `${UNITS.length} đơn vị, ${CATEGORIES.length} danh mục, thêm ${products}/${PRODUCTS.length} sản phẩm, lịch sử kho cho ${history} sản phẩm, thêm ${suppliers.created}/${suppliers.total} nhà cung cấp`,
   );
 }
 

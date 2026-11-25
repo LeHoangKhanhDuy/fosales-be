@@ -151,6 +151,61 @@ Danh mục sản phẩm dùng chung toàn chuỗi; tồn kho tách theo cửa h�
 
 Khi dùng S3, frontend cần cho phép domain `S3_PUBLIC_URL` trong `img-src` của CSP. Việc dọn ảnh không gắn vào sản phẩm nào sau 24 giờ chưa làm (cần job định kỳ).
 
+## Endpoint Tồn kho (prefix `/api`, chỉ `admin`/`manager`)
+
+Mọi số liệu tính theo cửa hàng của người đang đăng nhập. Mọi thay đổi tồn đi qua `StockLedger.apply` (`src/modules/stock`): khóa dòng `product_stocks` (`FOR UPDATE`, tạo nếu chưa có), không cho âm (trừ khi `allowNegative`), cập nhật `quantity` + `lastMovementAt`, ghi `stock_movements` before/after. Sản phẩm, tồn kho và sau này đơn hàng/nhập hàng dùng chung.
+
+| Method | Path | Ghi chú |
+|---|---|---|
+| GET | `/inventory` | `keyword`, `categoryId`, `level=ok\|low\|out\|slow`, `sort=value-desc\|stock-asc\|stock-desc\|recent\|name`, `page`, `pageSize` (≤100) → `{ items, total, page, pageSize, levelCounts }` (`levelCounts` bỏ qua `level`) |
+| GET | `/inventory/stats` | `{ stockValue, skuCount, units, low, out, slow }` toàn cửa hàng |
+| GET | `/inventory/movements` | `keyword` (tên/SKU/mã vạch/chứng từ), `type=all\|in\|out\|sale\|return\|import\|adjust-in\|adjust-out\|initial`, `productId`, `from`, `to` (ISO, `to` không bao gồm) → `{ items, total, page, pageSize, summary: { inQty, outQty } }` |
+| POST | `/inventory/adjust` | `{ productId, mode: increase\|decrease\|set, quantity, reason, note?, expectedStock? }`, header `Idempotency-Key` tùy chọn (24h) → 201 `{ item, movement }` |
+| GET | `/inventory/:productId` | `days` (≤90, mặc định 30) → `{ item, series: { date, stock }[], recent }` |
+| PATCH | `/inventory/:productId/min-stock` | `{ minStock }` → `InventoryItem` |
+
+- `InventoryItem` = sản phẩm (kèm `costPrice`) + `minStockValue`, `stockValue = max(stock,0) × (costPrice ?? price)`, `level` (`out` ≤ 0, `low` ≤ minStock, còn lại `ok`), `soldLast30` (tổng bán 30 ngày, không trừ trả hàng), `slow` (còn hàng nhưng không bán trong 30 ngày), `lastMovementAt`.
+- Danh sách, đếm theo mức và thống kê là một câu SQL (CTE bán 30 ngày + LEFT JOIN tồn cửa hàng), `levelCounts` dùng `COUNT(*) FILTER`.
+- `series`: tồn cuối mỗi ngày theo giờ Việt Nam (UTC+7), cũ → mới, ngày cuối là tồn hiện tại, `date` dạng `YYYY-MM-DD`.
+- Movement trả `type` dạng `adjust-in`/`adjust-out`, `createdBy` là tên người thực hiện, tên/SKU lấy theo sản phẩm hiện tại (kể cả đã xóa mềm).
+- Mã lỗi: `INVENTORY_PRODUCT_NOT_FOUND` (404), `INVENTORY_INSUFFICIENT_STOCK` và `INVENTORY_STOCK_CHANGED` (409, `details.current`), `INVENTORY_NO_CHANGE` (400), `IDEMPOTENCY_KEY_INVALID` (400), `IDEMPOTENCY_KEY_REUSED` (409).
+- Audit: `STOCK_ADJUSTED` (productId, mode, before, after, reason), `MIN_STOCK_UPDATED`.
+- Seed sinh lịch sử 60 ngày cho 29 sản phẩm mẫu (nhập `PN…`, bán `HD…`, trả hàng, hư hỏng), sinh ngược từ tồn hiện tại nên tồn cuối luôn khớp; chạy lại không nhân đôi.
+- Migration thêm `last_movement_at`: dán `prisma/sql/backfill-last-movement.sql` vào cuối file migration trước khi áp dụng (xem phần chạy migration).
+
+## Endpoint Nhà cung cấp (prefix `/api`, chỉ `admin`/`manager`)
+
+Nhà cung cấp và công nợ dùng chung toàn chuỗi. Công nợ chỉ thay đổi qua `SupplierLedger.apply(tx, { supplierId, kind, amount, code, label, refType?, refId?, occurredAt?, userId, allowNegative? })` (`src/modules/suppliers`): khóa dòng `suppliers` (`FOR UPDATE`), chặn nợ âm (`409 SUPPLIER_PAYMENT_EXCEEDS_DEBT`, `details.debt`), cập nhật `debt`, ghi bút toán có `balanceAfter`; `receipt` tự chốt `dueAt = occurredAt + paymentTermDays`. Module Nhập hàng gọi hàm này với `receipt`/`return`.
+
+| Method | Path | Ghi chú |
+|---|---|---|
+| GET | `/suppliers` | `keyword` (không dấu, bỏ khoảng trắng: tên/mã/liên hệ/SĐT/MST/email), `tab=active\|suspended\|inactive\|debt`, `categoryId`, `sort=newest\|name\|debt\|purchased`, `page`, `pageSize` → `{ items, total, page, pageSize, tabCounts }` |
+| GET | `/suppliers/stats` | `{ total, active, suspended, purchased30, openOrders, debt, debtors, overdue, overdueCount }` |
+| GET | `/suppliers/options` | `status` (mặc định `active`), `categoryId` → bản gọn cho ô chọn NCC |
+| GET | `/suppliers/next-code` | `{ code: 'NCC008' }` |
+| GET | `/suppliers/:id` | `Supplier & { summary }` |
+| POST | `/suppliers` | Mã trống → tự sinh `NCCxxx` (advisory lock) → 201 |
+| PATCH | `/suppliers/:id` | Sửa một phần; `categoryIds` thay toàn bộ |
+| PATCH | `/suppliers/:id/status` | `{ status, reason?, until? }`; `suspended` cần lý do, `until` ở tương lai |
+| DELETE | `/suppliers/:id` | Chỉ khi chưa có bút toán/phiếu chi → 204; ngược lại `409 SUPPLIER_HAS_TRANSACTIONS` |
+| GET | `/suppliers/:id/ledger` | `page`, `pageSize`, `from`, `to` → bút toán mới nhất trước (`balance` = số dư sau bút toán) |
+| GET | `/suppliers/:id/payments` | Phiếu chi, `paidBy` là tên người chi |
+| POST | `/suppliers/:id/payments` | `{ amount, method: cash\|transfer, reference?, note? }`, header `Idempotency-Key` → 201 `{ payment, supplier }`; mã `PCyyMMdd-0001` |
+| GET | `/suppliers/:id/top-products` | Trả `[]` cho tới khi có module Nhập hàng |
+
+- `summary`: `purchased` = Σ phiếu nhập − Σ trả hàng; `paid` = Σ thanh toán; `debt`; `overdue` phân bổ FIFO (mọi khoản giảm nợ trừ dần vào phiếu nhập theo thời gian, phần còn lại của phiếu đã quá hạn); `nextDueAt`; `lastReceiptAt`; `orderCount`/`openOrders` = 0 cho tới khi có module Nhập hàng. Danh sách/tab/thống kê là một CTE SQL (window function).
+- NCC tạm ngưng có `suspendedUntil` đã qua được tự chuyển về `active` ngay khi đọc (list/detail/options/stats).
+- Tiền của NCC lưu `BIGINT` (Int của PostgreSQL chỉ tới ~2,1 tỷ, không đủ cho hạn mức thanh toán 10 tỷ), trả về JSON dạng số.
+- Mã lỗi: `SUPPLIER_NOT_FOUND` (404); `SUPPLIER_CODE_TAKEN`, `SUPPLIER_NAME_TAKEN`, `SUPPLIER_PHONE_TAKEN`, `SUPPLIER_TAX_CODE_TAKEN`, `SUPPLIER_HAS_TRANSACTIONS`, `SUPPLIER_PAYMENT_EXCEEDS_DEBT`, `SUPPLIER_NOT_ACTIVE` (409); `SUPPLIER_CATEGORY_INVALID` (400).
+- Audit: `SUPPLIER_CREATED/UPDATED/STATUS_CHANGED/DELETED`, `SUPPLIER_PAYMENT_CREATED`.
+
+## Endpoint Cửa hàng
+
+| Method | Path | Ghi chú |
+|---|---|---|
+| GET | `/stores/current` | Mọi vai trò: `{ id, code, name, address, phone, taxCode, receiptFooter }` (dùng cho bill) |
+| PATCH | `/stores/current` | Chỉ `admin`; audit `STORE_UPDATED` |
+
 ## Luồng cookie
 
 | Cookie | Nội dung | Thuộc tính |

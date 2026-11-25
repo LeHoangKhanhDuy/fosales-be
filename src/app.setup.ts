@@ -2,18 +2,16 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyMultipart from '@fastify/multipart';
-import { Logger, ValidationError, ValidationPipe } from '@nestjs/common';
+import { ValidationError, ValidationPipe } from '@nestjs/common';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { AppException, defaultErrorBody } from './common/app-exception';
+import { AppException } from './common/app-exception';
 import { ACCESS_COOKIE, CSRF_HEADER } from './common/constants';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { MAX_IMAGE_BYTES } from './modules/uploads/image-processor.service';
 import { AppConfig } from './config/app-config';
 
 const BODY_LIMIT = 1024 * 1024;
-const logger = new Logger('Fastify');
 
 export function createAdapter(config: AppConfig) {
   return new FastifyAdapter({
@@ -45,13 +43,6 @@ export async function configureApp(app: NestFastifyApplication, config: AppConfi
 
   await app.register(fastifyMultipart, {
     limits: { fileSize: MAX_IMAGE_BYTES, files: 1, fields: 5, parts: 6 },
-  });
-
-  const fastify: FastifyInstance = app.getHttpAdapter().getInstance();
-  fastify.setErrorHandler((error: FastifyError, _request: FastifyRequest, reply: FastifyReply) => {
-    const status = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
-    if (status >= 500) logger.error(error.stack ?? error.message);
-    void reply.status(status).send(defaultErrorBody(status));
   });
 
   app.useGlobalFilters(new AllExceptionsFilter());
