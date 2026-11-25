@@ -63,6 +63,12 @@ enum AuditAction {
   PURCHASE_ORDER_CANCELLED
   PURCHASE_RECEIVING_DISCARDED
   GOODS_RECEIVED
+  CUSTOMER_CREATED
+  CUSTOMER_UPDATED
+  CUSTOMER_STATUS_CHANGED
+  CUSTOMER_DELETED
+  POINTS_ADJUSTED
+  MEMBERSHIP_UPDATED
 }
 
 enum PurchaseOrderStatus {
@@ -164,6 +170,8 @@ model User {
   purchaseEvents    PurchaseOrderEvent[]
   receivingSessions ReceivingSession[]
   goodsReceipts     GoodsReceipt[]
+  customers         Customer[]
+  pointLogs         PointLog[]
 
   @@index([storeId])
   @@map("users")
@@ -540,4 +548,102 @@ model GoodsReceiptLine {
   @@index([receiptId])
   @@index([productId])
   @@map("goods_receipt_lines")
+}
+
+enum CustomerTier {
+  retail
+  silver
+  gold
+  diamond
+}
+
+enum CustomerStatus {
+  active
+  blocked
+}
+
+enum Gender {
+  male
+  female
+  other
+}
+
+enum PointLogType {
+  opening
+  earn
+  revoke
+  adjust
+  redeem
+}
+
+model Customer {
+  id           String         @id @default(uuid()) @db.Uuid
+  code         String         @unique @db.VarChar(12)
+  name         String         @db.VarChar(100)
+  phone        String         @unique @db.VarChar(10)
+  email        String?        @db.VarChar(150)
+  gender       Gender?
+  birthday     DateTime?      @db.Date
+  address      String?        @db.VarChar(255)
+  note         String?        @db.VarChar(500)
+  status       CustomerStatus @default(active)
+  tier         CustomerTier   @default(retail)
+  points       Int            @default(0)
+  legacySpent  BigInt         @default(0) @map("legacy_spent")
+  spent        BigInt         @default(0)
+  orderCount   Int            @default(0) @map("order_count")
+  firstOrderAt DateTime?      @map("first_order_at")
+  lastOrderAt  DateTime?      @map("last_order_at")
+  searchKey    String         @map("search_key")
+  givenNameKey String         @map("given_name_key")
+  createdById  String?        @map("created_by_id") @db.Uuid
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  createdBy    User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  pointLogs    PointLog[]
+
+  @@index([tier])
+  @@index([status])
+  @@index([lastOrderAt])
+  @@index([createdAt])
+  @@map("customers")
+}
+
+model PointLog {
+  id          String       @id @default(uuid()) @db.Uuid
+  customerId  String       @map("customer_id") @db.Uuid
+  type        PointLogType
+  points      Int
+  balance     Int
+  refCode     String?      @map("ref_code") @db.VarChar(30)
+  reason      String?      @db.VarChar(120)
+  createdById String       @map("created_by_id") @db.Uuid
+  createdAt   DateTime     @default(now()) @map("created_at")
+  customer    Customer     @relation(fields: [customerId], references: [id])
+  createdBy   User         @relation(fields: [createdById], references: [id])
+
+  @@index([customerId, createdAt])
+  @@map("point_logs")
+}
+
+model MembershipSettings {
+  id             Int      @id @default(1)
+  amountPerPoint Int      @default(10000) @map("amount_per_point")
+  pointValue     Int      @default(100) @map("point_value")
+  updatedById    String?  @map("updated_by_id") @db.Uuid
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("membership_settings")
+}
+
+model MembershipTier {
+  tier            CustomerTier @id
+  label           String       @db.VarChar(30)
+  minSpent        BigInt       @map("min_spent")
+  discountPercent Decimal      @map("discount_percent") @db.Decimal(5, 2)
+  pointMultiplier Decimal      @map("point_multiplier") @db.Decimal(4, 2)
+  perks           String       @db.VarChar(200)
+  sortOrder       Int          @map("sort_order")
+
+  @@map("membership_tiers")
 }
