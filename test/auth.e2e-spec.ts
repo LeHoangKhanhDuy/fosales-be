@@ -307,6 +307,19 @@ describe('Mật khẩu', () => {
 });
 
 describe('Hệ thống', () => {
+  it('lỗi tầng Fastify (body quá 1MB) trả đúng định dạng lỗi chung', async () => {
+    const res = await client().call('post', '/auth/login', {
+      username: 'x'.repeat(1_100_000),
+      password: 'x',
+    });
+    expect(res.status).toBe(413);
+    expect(res.body).toEqual({
+      statusCode: 413,
+      code: 'PAYLOAD_TOO_LARGE',
+      message: 'Dữ liệu gửi lên quá lớn',
+    });
+  });
+
   it('healthcheck kiểm tra DB', async () => {
     const res = await client().call('get', '/health');
     expect(res.status).toBe(200);

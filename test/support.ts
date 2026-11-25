@@ -169,6 +169,10 @@ export class TestData {
   }
 
   async cleanup() {
+    const supplier = { supplier: { nameKey: { startsWith: this.run } } };
+    await this.prisma.supplierLedgerEntry.deleteMany({ where: supplier });
+    await this.prisma.supplierPayment.deleteMany({ where: supplier });
+    await this.prisma.supplier.deleteMany({ where: { nameKey: { startsWith: this.run } } });
     await this.prisma.product.deleteMany({ where: { name: { startsWith: this.run } } });
     await this.prisma.category.deleteMany({ where: { nameKey: { startsWith: this.run } } });
     await this.prisma.unit.deleteMany({ where: { nameKey: { startsWith: this.run } } });

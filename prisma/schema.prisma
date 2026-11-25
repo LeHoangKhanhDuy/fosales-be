@@ -51,6 +51,30 @@ enum AuditAction {
   STOCK_ADJUSTED
   IMAGE_UPLOADED
   MIN_STOCK_UPDATED
+  SUPPLIER_CREATED
+  SUPPLIER_UPDATED
+  SUPPLIER_STATUS_CHANGED
+  SUPPLIER_DELETED
+  SUPPLIER_PAYMENT_CREATED
+  STORE_UPDATED
+}
+
+enum SupplierStatus {
+  active
+  suspended
+  inactive
+}
+
+enum SupplierLedgerKind {
+  receipt
+  payment
+  return
+  adjustment
+}
+
+enum PaymentMethod {
+  cash
+  transfer
 }
 
 enum ProductStatus {
@@ -82,6 +106,10 @@ model Store {
   id        String      @id @default(uuid()) @db.Uuid
   code      String      @unique
   name      String
+  address   String?     @db.VarChar(255)
+  phone     String?     @db.VarChar(15)
+  taxCode   String?     @map("tax_code") @db.VarChar(13)
+  receiptFooter String? @map("receipt_footer") @db.VarChar(255)
   status    StoreStatus @default(active)
   createdAt DateTime    @default(now()) @map("created_at")
   updatedAt DateTime    @updatedAt @map("updated_at")
@@ -113,6 +141,8 @@ model User {
   auditLogs         AuditLog[]
   stockMovements    StockMovement[]
   idempotencyKeys   IdempotencyKey[]
+  supplierEntries   SupplierLedgerEntry[]
+  supplierPayments  SupplierPayment[]
 
   @@index([storeId])
   @@map("users")
@@ -179,6 +209,7 @@ model Category {
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
   products    Product[]
+  suppliers   SupplierCategory[]
 
   @@index([sortOrder])
   @@map("categories")
@@ -279,4 +310,84 @@ model IdempotencyKey {
   @@id([userId, key])
   @@index([createdAt])
   @@map("idempotency_keys")
+}
+
+model Supplier {
+  id              String                @id @default(uuid()) @db.Uuid
+  code            String                @unique @db.VarChar(20)
+  name            String                @db.VarChar(150)
+  nameKey         String                @unique @map("name_key")
+  contact         String                @db.VarChar(100)
+  phone           String                @unique @db.VarChar(10)
+  email           String?               @db.VarChar(150)
+  address         String                @db.VarChar(255)
+  taxCode         String?               @unique @map("tax_code") @db.VarChar(13)
+  paymentTermDays Int                   @default(15) @map("payment_term_days")
+  bankName        String?               @map("bank_name") @db.VarChar(100)
+  bankAccount     String?               @map("bank_account") @db.VarChar(19)
+  bankHolder      String?               @map("bank_holder") @db.VarChar(100)
+  note            String?               @db.VarChar(500)
+  status          SupplierStatus        @default(active)
+  suspendReason   String?               @map("suspend_reason") @db.VarChar(120)
+  suspendedUntil  DateTime?             @map("suspended_until")
+  debt            BigInt                @default(0)
+  searchKey       String                @map("search_key")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  categories      SupplierCategory[]
+  ledger          SupplierLedgerEntry[]
+  payments        SupplierPayment[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("suppliers")
+}
+
+model SupplierCategory {
+  supplierId String   @map("supplier_id") @db.Uuid
+  categoryId String   @map("category_id") @db.Uuid
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([supplierId, categoryId])
+  @@index([categoryId])
+  @@map("supplier_categories")
+}
+
+model SupplierLedgerEntry {
+  id           String             @id @default(uuid()) @db.Uuid
+  supplierId   String             @map("supplier_id") @db.Uuid
+  kind         SupplierLedgerKind
+  amount       BigInt
+  balanceAfter BigInt             @map("balance_after")
+  code         String             @db.VarChar(30)
+  label        String             @db.VarChar(200)
+  refType      String?            @map("ref_type") @db.VarChar(30)
+  refId        String?            @map("ref_id") @db.Uuid
+  occurredAt   DateTime           @default(now()) @map("occurred_at")
+  dueAt        DateTime?          @map("due_at")
+  createdById  String             @map("created_by_id") @db.Uuid
+  supplier     Supplier           @relation(fields: [supplierId], references: [id])
+  createdBy    User               @relation(fields: [createdById], references: [id])
+
+  @@index([supplierId, occurredAt])
+  @@index([kind, occurredAt])
+  @@map("supplier_ledger_entries")
+}
+
+model SupplierPayment {
+  id         String        @id @default(uuid()) @db.Uuid
+  code       String        @unique @db.VarChar(30)
+  supplierId String        @map("supplier_id") @db.Uuid
+  amount     BigInt
+  method     PaymentMethod
+  reference  String?       @db.VarChar(60)
+  note       String?       @db.VarChar(255)
+  paidAt     DateTime      @default(now()) @map("paid_at")
+  paidById   String        @map("paid_by_id") @db.Uuid
+  supplier   Supplier      @relation(fields: [supplierId], references: [id])
+  paidBy     User          @relation(fields: [paidById], references: [id])
+
+  @@index([supplierId, paidAt])
+  @@map("supplier_payments")
 }
