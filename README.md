@@ -244,7 +244,7 @@ Khách hàng và cấu hình thành viên dùng chung toàn chuỗi. Điểm ch�
 | DELETE | `/customers/:id` | manager | 204; có đơn hoặc log điểm khác `opening` → `409 CUSTOMER_HAS_TRANSACTIONS` (`details { orders, pointLogs }`) |
 | GET | `/customers/:id/points` | manager | `page`, `pageSize`, `type` → lịch sử điểm mới nhất trước |
 | POST | `/customers/:id/points` | manager | `{ points, type: adjust\|redeem, reason }`, header `Idempotency-Key` → 201 `{ customer, log }`; `redeem` luôn trừ `\|points\|` |
-| GET | `/customers/:id/orders` | manager | `items: []` cho tới khi có module Đơn hàng |
+| GET | `/customers/:id/orders` | manager | Đơn của khách (mới nhất trước) |
 | GET | `/membership` | mọi role | `{ amountPerPoint, pointValue, tiers[] }` (cache 60 giây; tự tạo cấu hình mặc định nếu DB trống) |
 | PUT | `/membership` | admin | Thay toàn bộ cấu hình → `{ settings, changedTiers }`; sai → `400 MEMBERSHIP_INVALID` (`details { field, tier? }`) |
 
@@ -274,6 +274,35 @@ Voucher là một loại khuyến mãi (`Promotion.kind = voucher`); bảng `pro
 - Dịch vụ cho module Đơn hàng: `VoucherService.redeem(tx, { code, customerId?, orderId, orderCode, lines[{ productId, categoryId, price, quantity, discount }], subtotalAfterItems, orderPromo?, memberDiscount?, userId })` → `{ promotion, discount, dropOrderPromo, revenue, redemptionId }` (khóa `FOR UPDATE`, kiểm tra lại toàn bộ, tính như `priceCart`, lỗi `VOUCHER_SCOPE_MISMATCH` / `VOUCHER_MIN_ORDER` (`details.missing`) / `VOUCHER_NOT_STACKABLE`); `dropOrderPromo = true` nghĩa là voucher không dùng chung và lợi hơn → đơn phải bỏ KM hóa đơn và tính lại ưu đãi hạng. `VoucherService.revoke(tx, { orderId })` trả lượt.
 - Audit: `PROMOTION_CREATED/UPDATED/STATE_CHANGED/DELETED`.
 - Seed (`prisma/seed-promotions.ts`): 8 voucher của mock FE + `FLASH5K` (hết lượt, 3 lượt dùng mẫu `HDSEED-000x`) + `CUOITUAN5` (tạm dừng).
+
+## Endpoint Đơn hàng / Thanh toán / Trả hàng (prefix `/api`)
+
+Server là nguồn sự thật về giá: `PricingService` port `priceCart` của FE (KM sản phẩm tốt nhất/dòng → KM hóa đơn tốt nhất → voucher → ưu đãi hạng → trần voucher → điểm). Tạo đơn chạy trong 1 transaction: tính giá → sinh mã `HDyyMMdd-0001` → trừ kho (`StockLedger` sale, khóa từng dòng tồn) → ghi đơn/dòng/thanh toán → `VoucherService.record` → `MembershipService.redeem` (điểm) → `applyOrder` nếu đơn hoàn tất. Ngoài admin, mọi người chỉ thấy đơn của cửa hàng mình.
+
+| Method | Path | Quyền | Ghi chú |
+|---|---|---|---|
+| POST | `/orders/quote` | mọi role | `{ items[{ productId, quantity }], customerId?, voucherCode?, redeemPoints? }` → báo giá: `lines`, `promotions`, `totals { subtotal, productDiscount, orderDiscount, memberDiscount, voucherDiscount, pointsDiscount, total, due }`, `voucherIssue` (voucher lỗi không chặn báo giá), `pointsToEarn`, `maxRedeemPoints`, `stockWarnings` |
+| POST | `/orders` | mọi role | Header **bắt buộc** `Idempotency-Key`; `{ items, customerId?, voucherCode?, redeemPoints?, payments[], note?, expectedTotal }` → 201 đơn đầy đủ |
+| GET | `/orders` | mọi role | `keyword` (mã đơn, tên/SĐT khách, tên/SKU/barcode SP), `status`, `from`, `to`, `payment`, `cashierId`, `sort=newest\|oldest\|total-desc\|total-asc`, `page`, `pageSize` → `{ items, total, page, pageSize, statusCounts }` |
+| GET | `/orders/stats` | manager | `from`, `to` → `{ revenue, orders, avgOrderValue, pending, pendingAmount, cancelled, cancelledAmount, refunded, refundedAmount, byMethod }` |
+| GET | `/orders/today` | mọi role | Thẻ POS, so với cùng giờ hôm qua |
+| GET | `/orders/lookup?code=` | mọi role | Tìm theo mã (quét barcode trên bill) |
+| GET | `/orders/:id` | mọi role | Chi tiết: `items` (kèm `allocatedDiscount`, `netAmount`, `returnedQty`), `payments`, `promotions`, `returns` |
+| GET | `/orders/:id/receipt` | mọi role | Dữ liệu bill 80mm |
+| POST | `/orders/:id/print` | mọi role | `printCount++`, audit |
+| POST | `/orders/:id/confirm-payment` | mọi role | `Idempotency-Key`; `{ paymentId?, reference? }`; hết khoản chờ → `completed` + cộng điểm |
+| POST | `/orders/:id/cancel` | mọi role | `Idempotency-Key`; `{ reason }`; quản lý: đơn `pending` hoặc `completed` trong ngày chưa trả hàng; thu ngân: chỉ đơn `pending` của mình trong 30 phút. Hoàn kho, trả lượt voucher, hoàn điểm đã dùng, thu hồi điểm đã cộng |
+| POST | `/orders/:id/returns` | manager | `Idempotency-Key`; `{ lines[{ orderLineId, quantity, restock }], reason, refundMethod, refundReference?, note?, approvedBy?, override? }` → 201 phiếu `THyyMMdd-0001` |
+| POST | `/orders/:id/refund` | manager | Shortcut: trả toàn bộ phần còn lại, nhập lại kho |
+| GET | `/returns` | manager | `keyword` (TH/HD/khách), `from`, `to`, `page`, `pageSize` |
+| GET | `/returns/:id` | manager | Chi tiết + dữ liệu in phiếu trả |
+
+- Thanh toán nhiều phương thức: `payments[{ method: cash\|transfer\|card\|ewallet, amount?, tendered?, reference?, confirmed? }]` (mỗi method 1 lần). Non-cash cộng lại ≤ `due` (`PAYMENT_OVERPAID`), tiền mặt bù phần còn lại, `tendered` thiếu → `PAYMENT_INSUFFICIENT` (`details.missing`). `card` xác nhận ngay; `transfer`/`ewallet` chờ xác nhận nếu không gửi `confirmed: true` → đơn `pending` (đã trừ kho, chưa cộng điểm). Điểm dùng ghi thành khoản `points`.
+- Giảm giá phân bổ vào từng dòng lúc bán: voucher chỉ vào dòng thuộc phạm vi, KM hóa đơn + ưu đãi hạng chia theo phần còn lại; điểm **không** phân bổ vào dòng (Σ `netAmount` = `total`). Trả hàng: tiền hoàn dòng = `round(netAmount / SL × SL trả)`, lần trả hết nhận phần dư; phần tương ứng điểm đã dùng được cộng lại điểm, phần còn lại hoàn theo `refundMethod`; điểm đã tích thu hồi `floor(pointsEarned × hoàn / total)`; trả hết → `refunded` + trả lượt voucher.
+- Cửa hàng có thêm `branchName`, `allowNegativeStock` (mặc định false), `returnDays` (mặc định 7) — sửa qua `PATCH /stores/current`.
+- Mã lỗi: `ORDER_NOT_FOUND`, `RETURN_NOT_FOUND` (404); `ORDER_PRODUCT_INVALID`, `PAYMENT_*`, `RETURN_LINE_INVALID`, `IDEMPOTENCY_KEY_REQUIRED` (400); `ORDER_OUT_OF_STOCK` (`details.items[{ productId, available }]`), `ORDER_TOTAL_CHANGED` (`details` = báo giá mới), `ORDER_INVALID_STATUS`, `RETURN_EXPIRED`, `CUSTOMER_POINTS_INSUFFICIENT`, `VOUCHER_*`, `CUSTOMER_BLOCKED` (409).
+- Audit: `ORDER_CREATED`, `ORDER_PAYMENT_CONFIRMED`, `ORDER_CANCELLED`, `ORDER_PRINTED`, `ORDER_RETURNED`.
+- Seed (`prisma/seed-orders.ts`): ~17 đơn trong 14 ngày qua qua chính service (tiền mặt, chuyển khoản, thẻ, ví, kết hợp, dùng voucher, dùng điểm, 1 đơn chờ chuyển khoản, 1 đơn hủy, 1 đơn trả một phần), sau đó lùi ngày.
 
 ## Endpoint Cửa hàng
 

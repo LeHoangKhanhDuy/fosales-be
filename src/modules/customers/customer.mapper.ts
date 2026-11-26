@@ -36,7 +36,7 @@ export const liteSelect = {
   status: true,
 } satisfies Prisma.CustomerSelect;
 
-export function toCustomer(row: CustomerRow, settings: Membership) {
+export function toCustomer(row: CustomerRow, settings: Membership, orders30 = 0) {
   const legacySpent = money(row.legacySpent);
   const spent = money(row.spent);
   const totalSpent = legacySpent + spent;
@@ -62,7 +62,7 @@ export function toCustomer(row: CustomerRow, settings: Membership) {
       avgOrder: row.orderCount ? Math.round(spent / row.orderCount) : 0,
       lastOrderAt: row.lastOrderAt,
       firstOrderAt: row.firstOrderAt,
-      orders30: 0,
+      orders30,
     },
     totalSpent,
     nextTier: nextTierInfo(settings, row.tier, totalSpent),

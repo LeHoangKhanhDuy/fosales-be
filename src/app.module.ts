@@ -19,6 +19,7 @@ import { HealthModule } from './modules/health/health.module';
 import { ProfileModule } from './modules/profile/profile.module';
 import { StoresModule } from './modules/stores/stores.module';
 import { CustomersModule } from './modules/customers/customers.module';
+import { OrdersModule } from './modules/orders/orders.module';
 import { PromotionsModule } from './modules/promotions/promotions.module';
 import { PurchasingModule } from './modules/purchasing/purchasing.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
@@ -43,6 +44,7 @@ import { PrismaModule } from './prisma/prisma.module';
     PurchasingModule,
     CustomersModule,
     PromotionsModule,
+    OrdersModule,
     UploadsModule,
     HealthModule,
   ],

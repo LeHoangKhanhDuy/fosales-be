@@ -16,6 +16,9 @@ const STORE_SELECT = {
   phone: true,
   taxCode: true,
   receiptFooter: true,
+  branchName: true,
+  allowNegativeStock: true,
+  returnDays: true,
 } as const;
 
 const notFound = () => new AppException(404, 'STORE_NOT_FOUND', 'Không tìm thấy cửa hàng');

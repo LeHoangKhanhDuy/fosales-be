@@ -1,6 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 import { NullableText, TrimName } from '../../catalog/dto/shared';
 
 const DigitsOrNull = () =>
@@ -47,6 +57,25 @@ export class UpdateStoreDto {
   @IsString()
   @MaxLength(255, { message: 'Lời nhắn cuối bill tối đa 255 ký tự' })
   receiptFooter?: string | null;
+
+  @ApiPropertyOptional({ example: 'Chi nhánh Quận 1', nullable: true })
+  @IsOptional()
+  @NullableText()
+  @IsString()
+  @MaxLength(100, { message: 'Tên chi nhánh tối đa 100 ký tự' })
+  branchName?: string | null;
+
+  @ApiPropertyOptional({ example: false, description: 'Cho phép bán khi tồn kho không đủ' })
+  @IsOptional()
+  @IsBoolean()
+  allowNegativeStock?: boolean;
+
+  @ApiPropertyOptional({ example: 7, description: 'Số ngày cho phép trả hàng' })
+  @IsOptional()
+  @IsInt({ message: 'Số ngày trả hàng phải là số nguyên' })
+  @Min(0, { message: 'Số ngày trả hàng không được âm' })
+  @Max(365, { message: 'Số ngày trả hàng tối đa 365' })
+  returnDays?: number;
 }
 
 export class StoreDto {
@@ -57,4 +86,7 @@ export class StoreDto {
   @ApiProperty({ type: String, nullable: true }) phone!: string | null;
   @ApiProperty({ type: String, nullable: true }) taxCode!: string | null;
   @ApiProperty({ type: String, nullable: true }) receiptFooter!: string | null;
+  @ApiProperty({ type: String, nullable: true }) branchName!: string | null;
+  @ApiProperty() allowNegativeStock!: boolean;
+  @ApiProperty({ example: 7 }) returnDays!: number;
 }

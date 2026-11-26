@@ -73,6 +73,11 @@ enum AuditAction {
   PROMOTION_UPDATED
   PROMOTION_STATE_CHANGED
   PROMOTION_DELETED
+  ORDER_CREATED
+  ORDER_PAYMENT_CONFIRMED
+  ORDER_CANCELLED
+  ORDER_PRINTED
+  ORDER_RETURNED
 }
 
 enum PurchaseOrderStatus {
@@ -135,6 +140,9 @@ model Store {
   phone     String?     @db.VarChar(15)
   taxCode   String?     @map("tax_code") @db.VarChar(13)
   receiptFooter String? @map("receipt_footer") @db.VarChar(255)
+  branchName    String? @map("branch_name") @db.VarChar(100)
+  allowNegativeStock Boolean @default(false) @map("allow_negative_stock")
+  returnDays    Int     @default(7) @map("return_days")
   status    StoreStatus @default(active)
   createdAt DateTime    @default(now()) @map("created_at")
   updatedAt DateTime    @updatedAt @map("updated_at")
@@ -143,6 +151,8 @@ model Store {
   movements StockMovement[]
   purchaseOrders PurchaseOrder[]
   goodsReceipts  GoodsReceipt[]
+  orders         Order[]
+  returnReceipts ReturnReceipt[]
 
   @@map("stores")
 }
@@ -177,6 +187,10 @@ model User {
   customers         Customer[]
   pointLogs         PointLog[]
   promotions        Promotion[]
+  orders            Order[]            @relation("OrderCashier")
+  cancelledOrders   Order[]            @relation("OrderCancelledBy")
+  confirmedPayments OrderPayment[]
+  returnReceipts    ReturnReceipt[]
 
   @@index([storeId])
   @@map("users")
@@ -291,6 +305,8 @@ model Product {
   purchaseItems PurchaseOrderItem[]
   receiptLines  GoodsReceiptLine[]
   promotions    PromotionProduct[]
+  orderLines    OrderLine[]
+  returnLines   ReturnLine[]
 
   @@index([categoryId])
   @@index([unitId])
@@ -609,6 +625,7 @@ model Customer {
   createdBy    User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
   pointLogs    PointLog[]
   redemptions  PromotionRedemption[]
+  orders       Order[]
 
   @@index([tier])
   @@index([status])
@@ -751,4 +768,180 @@ model PromotionRedemption {
   @@index([promotionId, createdAt])
   @@index([promotionId, customerId])
   @@map("promotion_redemptions")
+}
+
+enum OrderStatus {
+  pending
+  completed
+  cancelled
+  partially_refunded
+  refunded
+}
+
+enum OrderPaymentMethod {
+  cash
+  transfer
+  card
+  ewallet
+  points
+}
+
+enum OrderPaymentStatus {
+  pending
+  confirmed
+  voided
+}
+
+model Order {
+  id              String             @id @default(uuid()) @db.Uuid
+  code            String             @unique @db.VarChar(20)
+  storeId         String             @map("store_id") @db.Uuid
+  cashierId       String             @map("cashier_id") @db.Uuid
+  customerId      String?            @map("customer_id") @db.Uuid
+  status          OrderStatus
+  channel         String             @default("pos") @db.VarChar(20)
+  subtotal        Int
+  productDiscount Int                @map("product_discount")
+  orderDiscount   Int                @map("order_discount")
+  memberDiscount  Int                @map("member_discount")
+  voucherDiscount Int                @map("voucher_discount")
+  pointsDiscount  Int                @map("points_discount")
+  total           Int
+  paidTotal       Int                @map("paid_total")
+  changeAmount    Int                @map("change_amount")
+  vatRate         Decimal            @default(8) @map("vat_rate") @db.Decimal(4, 2)
+  voucherCode     String?            @map("voucher_code") @db.VarChar(20)
+  memberTier      CustomerTier?      @map("member_tier")
+  memberLabel     String?            @map("member_label") @db.VarChar(30)
+  memberPercent   Decimal?           @map("member_percent") @db.Decimal(5, 2)
+  pointsEarned    Int                @default(0) @map("points_earned")
+  pointsRedeemed  Int                @default(0) @map("points_redeemed")
+  pointsRefunded  Int                @default(0) @map("points_refunded")
+  pointsRevoked   Int                @default(0) @map("points_revoked")
+  refundedTotal   Int                @default(0) @map("refunded_total")
+  note            String?            @db.VarChar(500)
+  cancelReason    String?            @map("cancel_reason") @db.VarChar(200)
+  cancelledAt     DateTime?          @map("cancelled_at")
+  cancelledById   String?            @map("cancelled_by_id") @db.Uuid
+  completedAt     DateTime?          @map("completed_at")
+  printCount      Int                @default(0) @map("print_count")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  store           Store              @relation(fields: [storeId], references: [id])
+  cashier         User               @relation("OrderCashier", fields: [cashierId], references: [id])
+  cancelledBy     User?              @relation("OrderCancelledBy", fields: [cancelledById], references: [id])
+  customer        Customer?          @relation(fields: [customerId], references: [id])
+  lines           OrderLine[]
+  payments        OrderPayment[]
+  promotions      OrderPromotion[]
+  returns         ReturnReceipt[]
+
+  @@index([storeId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderLine {
+  id                String      @id @default(uuid()) @db.Uuid
+  orderId           String      @map("order_id") @db.Uuid
+  productId         String      @map("product_id") @db.Uuid
+  lineNo            Int         @map("line_no")
+  name              String      @db.VarChar(150)
+  sku               String      @db.VarChar(32)
+  barcode           String?     @db.VarChar(14)
+  unit              String      @db.VarChar(20)
+  categoryId        String?     @map("category_id") @db.Uuid
+  price             Int
+  quantity          Int
+  costPrice         Int         @map("cost_price")
+  productDiscount   Int         @default(0) @map("product_discount")
+  allocatedDiscount Int         @default(0) @map("allocated_discount")
+  netAmount         Int         @map("net_amount")
+  isGift            Boolean     @default(false) @map("is_gift")
+  promotionId       String?     @map("promotion_id") @db.Uuid
+  promoName         String?     @map("promo_name") @db.VarChar(120)
+  returnedQty       Int         @default(0) @map("returned_qty")
+  refundedAmount    Int         @default(0) @map("refunded_amount")
+  order             Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product           Product     @relation(fields: [productId], references: [id])
+  returnLines       ReturnLine[]
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_lines")
+}
+
+model OrderPayment {
+  id            String             @id @default(uuid()) @db.Uuid
+  orderId       String             @map("order_id") @db.Uuid
+  method        OrderPaymentMethod
+  amount        Int
+  tendered      Int?
+  reference     String?            @db.VarChar(60)
+  status        OrderPaymentStatus
+  confirmedAt   DateTime?          @map("confirmed_at")
+  confirmedById String?            @map("confirmed_by_id") @db.Uuid
+  createdAt     DateTime           @default(now()) @map("created_at")
+  order         Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  confirmedBy   User?              @relation(fields: [confirmedById], references: [id])
+
+  @@index([orderId])
+  @@map("order_payments")
+}
+
+model OrderPromotion {
+  id          String  @id @default(uuid()) @db.Uuid
+  orderId     String  @map("order_id") @db.Uuid
+  promotionId String? @map("promotion_id") @db.Uuid
+  code        String  @db.VarChar(30)
+  name        String  @db.VarChar(120)
+  kind        String  @db.VarChar(20)
+  amount      Int
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_promotions")
+}
+
+model ReturnReceipt {
+  id              String             @id @default(uuid()) @db.Uuid
+  code            String             @unique @db.VarChar(20)
+  orderId         String             @map("order_id") @db.Uuid
+  storeId         String             @map("store_id") @db.Uuid
+  refundTotal     Int                @map("refund_total")
+  cashRefund      Int                @map("cash_refund")
+  refundMethod    OrderPaymentMethod @map("refund_method")
+  refundReference String?            @map("refund_reference") @db.VarChar(60)
+  reason          String             @db.VarChar(200)
+  note            String?            @db.VarChar(500)
+  pointsRefunded  Int                @default(0) @map("points_refunded")
+  pointsRevoked   Int                @default(0) @map("points_revoked")
+  createdById     String             @map("created_by_id") @db.Uuid
+  approvedBy      String?            @map("approved_by") @db.VarChar(100)
+  createdAt       DateTime           @default(now()) @map("created_at")
+  order           Order              @relation(fields: [orderId], references: [id])
+  store           Store              @relation(fields: [storeId], references: [id])
+  createdBy       User               @relation(fields: [createdById], references: [id])
+  lines           ReturnLine[]
+
+  @@index([orderId])
+  @@index([storeId, createdAt])
+  @@map("return_receipts")
+}
+
+model ReturnLine {
+  id           String        @id @default(uuid()) @db.Uuid
+  returnId     String        @map("return_id") @db.Uuid
+  orderLineId  String        @map("order_line_id") @db.Uuid
+  productId    String        @map("product_id") @db.Uuid
+  quantity     Int
+  refundAmount Int           @map("refund_amount")
+  restock      Boolean
+  receipt      ReturnReceipt @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  orderLine    OrderLine     @relation(fields: [orderLineId], references: [id])
+  product      Product       @relation(fields: [productId], references: [id])
+
+  @@index([returnId])
+  @@map("return_lines")
 }

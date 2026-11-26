@@ -133,6 +133,7 @@ export const STORE_INFO = {
   phone: '02838123456',
   taxCode: '0316789012',
   receiptFooter: 'Đổi/trả trong 7 ngày, kèm hóa đơn và sản phẩm còn nguyên tem',
+  branchName: 'Chi nhánh Quận 1',
 };
 
 export async function seedSuppliers(prisma: PrismaClient, categories: Map<string, string>) {

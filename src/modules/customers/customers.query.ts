@@ -22,6 +22,7 @@ export interface CustomerStatsRow {
   total: number;
   new30: number;
   active30: number;
+  returning: number;
   points: number;
   birthday: number;
 }
@@ -86,11 +87,23 @@ export const tierCountsSql = (filter: CustomerFilter, tier?: CustomerTierValue) 
   FROM customers c
   WHERE ${where(filter)}`;
 
+const RECENT_ORDERS = Prisma.sql`
+  SELECT customer_id, count(*) AS n FROM orders
+  WHERE customer_id IS NOT NULL AND status IN ('completed', 'partially_refunded')
+    AND created_at >= now() - interval '30 days'
+  GROUP BY customer_id`;
+
+export const orders30Sql = (ids: string[]) => Prisma.sql`
+  SELECT customer_id AS "customerId", n::int AS count FROM (${RECENT_ORDERS}) r
+  WHERE customer_id = ANY(${ids}::uuid[])`;
+
 export const customerStatsSql = () => Prisma.sql`
+  WITH recent AS (${RECENT_ORDERS})
   SELECT
+    (SELECT count(*) FROM recent)::int AS active30,
+    (SELECT count(*) FROM recent WHERE n >= 2)::int AS returning,
     count(*)::int AS total,
     (count(*) FILTER (WHERE ${SEGMENTS.new30}))::int AS new30,
-    (count(*) FILTER (WHERE c.last_order_at >= now() - interval '30 days'))::int AS active30,
     COALESCE(SUM(c.points) FILTER (WHERE c.status = 'active'), 0)::int AS points,
     (count(*) FILTER (WHERE c.status = 'active' AND ${SEGMENTS.birthday}))::int AS birthday
   FROM customers c`;
