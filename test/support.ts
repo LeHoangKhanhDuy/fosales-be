@@ -171,6 +171,11 @@ export class TestData {
   async cleanup() {
     const supplier = { supplier: { nameKey: { startsWith: this.run } } };
     const store = { store: { code: this.run } };
+    const promotion = { promotion: { createdBy: { username: { startsWith: this.run } } } };
+    await this.prisma.promotionRedemption.deleteMany({ where: promotion });
+    await this.prisma.promotion.deleteMany({
+      where: { createdBy: { username: { startsWith: this.run } } },
+    });
     const customer = { customer: { name: { startsWith: this.run } } };
     await this.prisma.pointLog.deleteMany({ where: customer });
     await this.prisma.customer.deleteMany({ where: { name: { startsWith: this.run } } });
