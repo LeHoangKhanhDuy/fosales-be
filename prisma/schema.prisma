@@ -69,6 +69,10 @@ enum AuditAction {
   CUSTOMER_DELETED
   POINTS_ADJUSTED
   MEMBERSHIP_UPDATED
+  PROMOTION_CREATED
+  PROMOTION_UPDATED
+  PROMOTION_STATE_CHANGED
+  PROMOTION_DELETED
 }
 
 enum PurchaseOrderStatus {
@@ -172,6 +176,7 @@ model User {
   goodsReceipts     GoodsReceipt[]
   customers         Customer[]
   pointLogs         PointLog[]
+  promotions        Promotion[]
 
   @@index([storeId])
   @@map("users")
@@ -239,6 +244,7 @@ model Category {
   updatedAt   DateTime       @updatedAt @map("updated_at")
   products    Product[]
   suppliers   SupplierCategory[]
+  promotions  PromotionCategory[]
 
   @@index([sortOrder])
   @@map("categories")
@@ -284,6 +290,7 @@ model Product {
   movements     StockMovement[]
   purchaseItems PurchaseOrderItem[]
   receiptLines  GoodsReceiptLine[]
+  promotions    PromotionProduct[]
 
   @@index([categoryId])
   @@index([unitId])
@@ -601,6 +608,7 @@ model Customer {
   updatedAt    DateTime       @updatedAt @map("updated_at")
   createdBy    User?          @relation(fields: [createdById], references: [id], onDelete: SetNull)
   pointLogs    PointLog[]
+  redemptions  PromotionRedemption[]
 
   @@index([tier])
   @@index([status])
@@ -646,4 +654,101 @@ model MembershipTier {
   sortOrder       Int          @map("sort_order")
 
   @@map("membership_tiers")
+}
+
+enum PromotionKind {
+  voucher
+  product
+  order
+  gift
+}
+
+enum DiscountType {
+  percent
+  amount
+}
+
+enum PromotionState {
+  draft
+  active
+  paused
+  ended
+}
+
+enum ScopeType {
+  all
+  categories
+  products
+}
+
+model Promotion {
+  id               String                @id @default(uuid()) @db.Uuid
+  code             String                @unique @db.VarChar(20)
+  name             String                @db.VarChar(120)
+  description      String?               @db.VarChar(500)
+  searchKey        String                @map("search_key")
+  kind             PromotionKind
+  discountType     DiscountType          @map("discount_type")
+  discountValue    Int                   @map("discount_value")
+  maxDiscount      Int?                  @map("max_discount")
+  minOrder         Int?                  @map("min_order")
+  scopeType        ScopeType             @default(all) @map("scope_type")
+  usageLimit       Int?                  @map("usage_limit")
+  perCustomerLimit Int?                  @map("per_customer_limit")
+  stackable        Boolean               @default(true)
+  state            PromotionState        @default(draft)
+  startAt          DateTime              @map("start_at")
+  endAt            DateTime?             @map("end_at")
+  usedCount        Int                   @default(0) @map("used_count")
+  createdById      String                @map("created_by_id") @db.Uuid
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+  createdBy        User                  @relation(fields: [createdById], references: [id])
+  categories       PromotionCategory[]
+  products         PromotionProduct[]
+  redemptions      PromotionRedemption[]
+
+  @@index([kind, state])
+  @@index([createdAt])
+  @@map("promotions")
+}
+
+model PromotionCategory {
+  promotionId String    @map("promotion_id") @db.Uuid
+  categoryId  String    @map("category_id") @db.Uuid
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  category    Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([promotionId, categoryId])
+  @@index([categoryId])
+  @@map("promotion_categories")
+}
+
+model PromotionProduct {
+  promotionId String    @map("promotion_id") @db.Uuid
+  productId   String    @map("product_id") @db.Uuid
+  promotion   Promotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([promotionId, productId])
+  @@index([productId])
+  @@map("promotion_products")
+}
+
+model PromotionRedemption {
+  id          String    @id @default(uuid()) @db.Uuid
+  promotionId String    @map("promotion_id") @db.Uuid
+  orderId     String    @unique @map("order_id") @db.Uuid
+  orderCode   String    @map("order_code") @db.VarChar(30)
+  customerId  String?   @map("customer_id") @db.Uuid
+  discount    Int
+  revenue     Int
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  promotion   Promotion @relation(fields: [promotionId], references: [id])
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([promotionId, createdAt])
+  @@index([promotionId, customerId])
+  @@map("promotion_redemptions")
 }

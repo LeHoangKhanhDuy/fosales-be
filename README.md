@@ -253,6 +253,28 @@ Khách hàng và cấu hình thành viên dùng chung toàn chuỗi. Điểm ch�
 - Audit: `CUSTOMER_CREATED/UPDATED/STATUS_CHANGED/DELETED`, `POINTS_ADJUSTED`, `MEMBERSHIP_UPDATED`.
 - Seed (`prisma/seed-customers.ts`): cấu hình mặc định + 24 khách từ mock FE qua chính service; điểm đầu kỳ = `floor(legacySpent / amountPerPoint)` (log `opening`), khách bị khóa không có điểm.
 
+## Endpoint Voucher / Khuyến mãi (prefix `/api`)
+
+Voucher là một loại khuyến mãi (`Promotion.kind = voucher`); bảng `promotions` sẽ dùng tiếp cho KM sản phẩm / hóa đơn / quà tặng. Hiện API chỉ cho tạo `kind = voucher`.
+
+| Method | Path | Quyền | Ghi chú |
+|---|---|---|---|
+| GET | `/promotions` | manager | `kind`, `keyword` (không dấu: mã/tên), `status=draft\|scheduled\|running\|paused\|ended`, `sort=newest\|ending\|usage`, `page`, `pageSize` → `{ items, total, page, pageSize, statusCounts }` |
+| GET | `/promotions/generate-code` | manager | `prefix` (≤ 14 ký tự) → `{ code }` chưa trùng (6 ký tự ngẫu nhiên, bỏ I/O/0/1) |
+| POST | `/promotions/vouchers/validate` | mọi role | `{ code, customerId?, cartTotal? }` → 200 `Voucher`; giới hạn 20 lần/phút/người dùng (429 `RATE_LIMITED`) |
+| GET | `/promotions/:id` | manager | Chi tiết + `status` + `usage { count, discount, revenue, last30Count, last30Discount, lastUsedAt }` |
+| POST | `/promotions` | manager | `{ code, name, description?, discountType, discountValue, maxDiscount?, minOrder?, scope?, usageLimit?, perCustomerLimit?, stackable?, startAt, endAt?, activate? }` → 201 |
+| PATCH | `/promotions/:id` | manager | Sửa một phần (+ `activate`); đã có lượt dùng → không sửa `code/discountType/discountValue/scope` (409 `PROMOTION_LOCKED_FIELDS`) |
+| PATCH | `/promotions/:id/state` | manager | `{ state: active\|paused\|ended }`; kích hoạt lại khi đã hết hạn/hết lượt → 409 `PROMOTION_INVALID_STATE` |
+| DELETE | `/promotions/:id` | manager | Chỉ khi chưa từng có lượt dùng → 204; ngược lại 409 `PROMOTION_IN_USE` |
+| GET | `/promotions/:id/redemptions` | manager | Lịch sử dùng mã (kể cả lượt đã thu hồi, có `revokedAt`) |
+
+- Trạng thái hiển thị (`status`): `draft/paused/ended` theo `state`; `active` → `scheduled` (chưa tới `startAt`) / `ended` (quá `endAt` hoặc `usedCount ≥ usageLimit`) / `running`.
+- Validate kiểm tra theo thứ tự: `VOUCHER_NOT_FOUND` (404; gồm nháp) → `VOUCHER_NOT_STARTED` → `VOUCHER_PAUSED` → `VOUCHER_USED_UP` / `VOUCHER_EXPIRED` → `VOUCHER_MEMBER_ONLY` → `CUSTOMER_BLOCKED` → `VOUCHER_CUSTOMER_LIMIT` (409). Không chặn `minOrder`/phạm vi ở bước này.
+- Dịch vụ cho module Đơn hàng: `VoucherService.redeem(tx, { code, customerId?, orderId, orderCode, lines[{ productId, categoryId, price, quantity, discount }], subtotalAfterItems, orderPromo?, memberDiscount?, userId })` → `{ promotion, discount, dropOrderPromo, revenue, redemptionId }` (khóa `FOR UPDATE`, kiểm tra lại toàn bộ, tính như `priceCart`, lỗi `VOUCHER_SCOPE_MISMATCH` / `VOUCHER_MIN_ORDER` (`details.missing`) / `VOUCHER_NOT_STACKABLE`); `dropOrderPromo = true` nghĩa là voucher không dùng chung và lợi hơn → đơn phải bỏ KM hóa đơn và tính lại ưu đãi hạng. `VoucherService.revoke(tx, { orderId })` trả lượt.
+- Audit: `PROMOTION_CREATED/UPDATED/STATE_CHANGED/DELETED`.
+- Seed (`prisma/seed-promotions.ts`): 8 voucher của mock FE + `FLASH5K` (hết lượt, 3 lượt dùng mẫu `HDSEED-000x`) + `CUOITUAN5` (tạm dừng).
+
 ## Endpoint Cửa hàng
 
 | Method | Path | Ghi chú |
