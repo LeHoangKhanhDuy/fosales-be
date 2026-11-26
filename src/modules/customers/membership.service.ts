@@ -108,7 +108,10 @@ export class MembershipService {
     return { earned, tierBefore: customer.tier, tierAfter };
   }
 
-  async revokeOrder(tx: Tx, input: OrderPoints & { earnedPoints: number }) {
+  async revokeOrder(
+    tx: Tx,
+    input: OrderPoints & { earnedPoints: number; keepOrderCount?: boolean },
+  ) {
     const customer = await this.lock(tx, input.customerId);
     const revoked = Math.max(0, Math.min(input.earnedPoints, customer.points));
     if (revoked > 0) {
@@ -123,7 +126,7 @@ export class MembershipService {
     await tx.$executeRaw`
       UPDATE customers SET
         spent = GREATEST(spent - ${BigInt(input.orderTotal)}, 0),
-        order_count = GREATEST(order_count - 1, 0),
+        order_count = GREATEST(order_count - ${input.keepOrderCount ? 0 : 1}, 0),
         updated_at = now()
       WHERE id = ${input.customerId}::uuid`;
     const tierAfter = await this.refreshTier(tx, input.customerId, await this.settings());

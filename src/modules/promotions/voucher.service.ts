@@ -31,6 +31,44 @@ export interface RedeemInput {
   userId: string;
 }
 
+export interface RedemptionRecord {
+  promotionId: string;
+  orderId: string;
+  orderCode: string;
+  customerId?: string | null;
+  discount: number;
+  revenue: number;
+}
+
+export interface VoucherCart {
+  lines: Pick<RedeemLine, 'productId' | 'categoryId' | 'price' | 'quantity' | 'discount'>[];
+  subtotalAfterItems: number;
+  orderPromo?: { name: string; amount: number } | null;
+}
+
+export function evaluateVoucher(voucher: PromotionRow, cart: VoucherCart) {
+  const scope = scopeOf(voucher);
+  const eligible = cart.lines
+    .filter((line) => inScope(scope, line))
+    .reduce((sum, line) => sum + line.price * line.quantity - line.discount, 0);
+  if (eligible <= 0) throw PromotionErrors.voucherScopeMismatch();
+  const missing = (voucher.minOrder ?? 0) - cart.subtotalAfterItems;
+  if (missing > 0) throw PromotionErrors.voucherMinOrder(missing);
+  const discount = calcDiscount(
+    eligible,
+    voucher.discountType,
+    voucher.discountValue,
+    voucher.maxDiscount,
+  );
+  const orderPromo = cart.orderPromo && cart.orderPromo.amount > 0 ? cart.orderPromo : null;
+  let dropOrderPromo = false;
+  if (orderPromo && !voucher.stackable) {
+    if (discount >= orderPromo.amount) dropOrderPromo = true;
+    else throw PromotionErrors.voucherNotStackable(orderPromo.name);
+  }
+  return { discount, dropOrderPromo, scope };
+}
+
 @Injectable()
 export class VoucherService {
   constructor(
@@ -48,68 +86,74 @@ export class VoucherService {
     return toVoucher(promotion!);
   }
 
-  async redeem(tx: Prisma.TransactionClient, input: RedeemInput) {
-    const code = input.code.trim().toUpperCase();
-    const [locked] = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM promotions WHERE code = ${code} FOR UPDATE`;
-    const promotion = locked
-      ? await tx.promotion.findUnique({ where: { id: locked.id }, include: promotionInclude })
-      : null;
-    await this.check(tx, promotion, input.customerId ?? null);
-    const voucher = promotion!;
-    const scope = scopeOf(voucher);
-
-    const eligible = input.lines
-      .filter((line) => inScope(scope, line))
-      .reduce((sum, line) => sum + line.price * line.quantity - line.discount, 0);
-    if (eligible <= 0) throw PromotionErrors.voucherScopeMismatch();
-    const missing = (voucher.minOrder ?? 0) - input.subtotalAfterItems;
-    if (missing > 0) throw PromotionErrors.voucherMinOrder(missing);
-
-    let discount = calcDiscount(
-      eligible,
-      voucher.discountType,
-      voucher.discountValue,
-      voucher.maxDiscount,
-    );
-    let dropOrderPromo = false;
-    const orderPromo = input.orderPromo && input.orderPromo.amount > 0 ? input.orderPromo : null;
-    if (orderPromo && !voucher.stackable) {
-      if (discount >= orderPromo.amount) dropOrderPromo = true;
-      else throw PromotionErrors.voucherNotStackable(orderPromo.name);
+  async resolve(client: Client, code: string, customerId: string | null, lock = false) {
+    const normalized = code.trim().toUpperCase();
+    let promotion: PromotionRow | null = null;
+    if (lock) {
+      const [locked] = await client.$queryRaw<{ id: string }[]>`
+        SELECT id FROM promotions WHERE code = ${normalized} FOR UPDATE`;
+      promotion = locked
+        ? await client.promotion.findUnique({ where: { id: locked.id }, include: promotionInclude })
+        : null;
+    } else {
+      promotion = await client.promotion.findUnique({
+        where: { code: normalized },
+        include: promotionInclude,
+      });
     }
-    const orderDiscount = dropOrderPromo ? 0 : (orderPromo?.amount ?? 0);
-    const memberDiscount = input.memberDiscount ?? 0;
-    discount = Math.max(
-      0,
-      Math.min(discount, input.subtotalAfterItems - orderDiscount - memberDiscount),
-    );
-    const revenue = Math.max(
-      0,
-      input.subtotalAfterItems - orderDiscount - memberDiscount - discount,
-    );
+    await this.check(client, promotion, customerId);
+    return promotion!;
+  }
 
+  async record(tx: Prisma.TransactionClient, input: RedemptionRecord) {
     if (await tx.promotionRedemption.count({ where: { orderId: input.orderId } })) {
       throw PromotionErrors.voucherAlreadyApplied();
     }
     const redemption = await tx.promotionRedemption.create({
       data: {
-        promotionId: voucher.id,
+        promotionId: input.promotionId,
         orderId: input.orderId,
         orderCode: input.orderCode,
         customerId: input.customerId ?? null,
-        discount,
-        revenue,
+        discount: input.discount,
+        revenue: input.revenue,
       },
       select: { id: true },
     });
-    await tx.promotion.update({ where: { id: voucher.id }, data: { usedCount: { increment: 1 } } });
+    await tx.promotion.update({
+      where: { id: input.promotionId },
+      data: { usedCount: { increment: 1 } },
+    });
+    return redemption.id;
+  }
+
+  async redeem(tx: Prisma.TransactionClient, input: RedeemInput) {
+    const voucher = await this.resolve(tx, input.code, input.customerId ?? null, true);
+    const evaluated = evaluateVoucher(voucher, input);
+    const orderDiscount = evaluated.dropOrderPromo ? 0 : (input.orderPromo?.amount ?? 0);
+    const memberDiscount = input.memberDiscount ?? 0;
+    const discount = Math.max(
+      0,
+      Math.min(evaluated.discount, input.subtotalAfterItems - orderDiscount - memberDiscount),
+    );
+    const revenue = Math.max(
+      0,
+      input.subtotalAfterItems - orderDiscount - memberDiscount - discount,
+    );
+    const redemptionId = await this.record(tx, {
+      promotionId: voucher.id,
+      orderId: input.orderId,
+      orderCode: input.orderCode,
+      customerId: input.customerId,
+      discount,
+      revenue,
+    });
     return {
       promotion: toVoucher(voucher),
       discount,
-      dropOrderPromo,
+      dropOrderPromo: evaluated.dropOrderPromo,
       revenue,
-      redemptionId: redemption.id,
+      redemptionId,
     };
   }
 

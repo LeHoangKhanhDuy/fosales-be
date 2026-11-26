@@ -7,12 +7,14 @@ import {
   CustomerLookupQueryDto,
   CustomerSearchQueryDto,
 } from './dto/customer-query.dto';
+import { orderListInclude, toOrderListItem } from '../orders/order.mapper';
 import { customerSelect, liteSelect, toCustomer } from './customer.mapper';
 import { CustomerErrors } from './customers.errors';
 import {
   customerPageSql,
   customerSearchSql,
   customerStatsSql,
+  orders30Sql,
   tierCountsSql,
   type CustomerStatsRow,
   type TierCountsRow,
@@ -42,10 +44,11 @@ export class CustomersService {
       ? await this.prisma.customer.findMany({ where: { id: { in: ids } }, select: customerSelect })
       : [];
     const byId = new Map(customers.map((customer) => [customer.id, customer]));
+    const recent = await this.orders30(ids);
     return {
       items: ids.flatMap((id) => {
         const customer = byId.get(id);
-        return customer ? [toCustomer(customer, settings)] : [];
+        return customer ? [toCustomer(customer, settings, recent.get(id) ?? 0)] : [];
       }),
       total,
       page: query.page,
@@ -56,7 +59,7 @@ export class CustomersService {
 
   async stats() {
     const [row] = await this.prisma.$queryRaw<CustomerStatsRow[]>(customerStatsSql());
-    return { ...row, returning: 0 };
+    return row;
   }
 
   async search({ q, limit }: CustomerSearchQueryDto) {
@@ -89,7 +92,7 @@ export class CustomersService {
       this.membership.settings(),
     ]);
     if (!row) throw CustomerErrors.notFound();
-    return toCustomer(row, settings);
+    return toCustomer(row, settings, (await this.orders30([id])).get(id) ?? 0);
   }
 
   async lite(id: string) {
@@ -100,7 +103,26 @@ export class CustomersService {
 
   async orders(id: string, query: PageDto) {
     await this.assertExists(id);
-    return { items: [], total: 0, page: query.page, pageSize: query.pageSize };
+    const where = { customerId: id };
+    const [rows, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include: orderListInclude,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.prisma.order.count({ where }),
+    ]);
+    return { items: rows.map(toOrderListItem), total, page: query.page, pageSize: query.pageSize };
+  }
+
+  private async orders30(ids: string[]) {
+    if (!ids.length) return new Map<string, number>();
+    const rows = await this.prisma.$queryRaw<{ customerId: string; count: number }[]>(
+      orders30Sql(ids),
+    );
+    return new Map(rows.map((row) => [row.customerId, row.count]));
   }
 
   async assertExists(id: string) {

@@ -6,6 +6,8 @@ const TABLES = {
   purchase_orders: Prisma.raw('purchase_orders'),
   goods_receipts: Prisma.raw('goods_receipts'),
   supplier_payments: Prisma.raw('supplier_payments'),
+  orders: Prisma.raw('orders'),
+  return_receipts: Prisma.raw('return_receipts'),
 };
 
 export type CodeTable = keyof typeof TABLES;

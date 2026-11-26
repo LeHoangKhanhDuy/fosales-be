@@ -6,6 +6,7 @@ import { formatSku, productSearchKey } from '../src/modules/products/products.ut
 import { CATEGORIES, PRODUCTS, UNITS } from './seed-data';
 import { seedCustomers } from './seed-customers';
 import { seedHistory } from './seed-history';
+import { seedOrders } from './seed-orders';
 import { seedPromotions } from './seed-promotions';
 import { seedPurchasing } from './seed-purchasing';
 import { seedSuppliers, STORE_INFO } from './seed-suppliers';
@@ -106,13 +107,17 @@ async function main() {
     users.get('admin') ?? '',
     catalog.categories,
   );
+  const sales = await seedOrders(prisma, store.id, {
+    cashier: users.get('thungan') ?? '',
+    manager: users.get('quanly') ?? '',
+  });
   const orders = await seedPurchasing(prisma, store.id, {
     admin: users.get('admin') ?? '',
     manager: users.get('quanly') ?? '',
   });
   console.log(
     `Seed xong: store ${store.code}, ${USERS.length} tài khoản (mật khẩu ${DEV_PASSWORD}), ` +
-      `${UNITS.length} đơn vị, ${CATEGORIES.length} danh mục, thêm ${products}/${PRODUCTS.length} sản phẩm, lịch sử kho cho ${history} sản phẩm, thêm ${suppliers.created}/${suppliers.total} nhà cung cấp, ${orders} đơn đặt hàng, ${customers} khách hàng, ${vouchers} mã giảm giá`,
+      `${UNITS.length} đơn vị, ${CATEGORIES.length} danh mục, thêm ${products}/${PRODUCTS.length} sản phẩm, lịch sử kho cho ${history} sản phẩm, thêm ${suppliers.created}/${suppliers.total} nhà cung cấp, ${orders} đơn đặt hàng, ${customers} khách hàng, ${vouchers} mã giảm giá, ${sales} đơn bán hàng`,
   );
 }
 
