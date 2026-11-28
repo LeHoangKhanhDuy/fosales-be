@@ -26,9 +26,9 @@ export class StoresController {
   }
 
   @Patch('current')
-  @Roles('admin')
+  @Roles('admin', 'manager')
   @ApiOkResponse({ type: StoreDto })
-  @ApiErrors(400, 401, 403)
+  @ApiErrors(400, 401, 403, 409)
   update(@CurrentUser() user: AuthUser, @Body() dto: UpdateStoreDto, @Client() client: ClientInfo) {
     return this.stores.updateCurrent(user, dto, client);
   }

@@ -10,6 +10,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { NullableText, TrimName } from '../../catalog/dto/shared';
 
@@ -21,6 +22,13 @@ const DigitsOrNull = () =>
   );
 
 export class UpdateStoreDto {
+  @ApiPropertyOptional({ example: 'hcm-01', description: 'Mã cửa hàng. Admin và manager được sửa.' })
+  @ValidateIf((_dto, value) => value !== undefined)
+  @Transform(({ value }) => typeof value === 'string' ? value.trim() : value)
+  @IsString()
+  @MinLength(1, { message: 'Mã cửa hàng không được để trống' })
+  code?: string;
+
   @ApiPropertyOptional({ example: 'FoTech Mart Quận 1' })
   @IsOptional()
   @TrimName()

@@ -301,7 +301,7 @@ describe('Phân quyền và cửa hàng', () => {
     expect((await cashier.call('post', '/suppliers', input('Cấm'))).status).toBe(403);
   });
 
-  it('mọi vai trò xem được cửa hàng hiện tại, chỉ admin được sửa', async () => {
+  it('mọi vai trò xem được cửa hàng, manager chỉ được sửa mã', async () => {
     const current = await cashier.call('get', '/stores/current');
     expect(current.status).toBe(200);
     expect(current.body).toMatchObject({
@@ -311,13 +311,21 @@ describe('Phân quyền và cửa hàng', () => {
       receiptFooter: null,
     });
     expect((await manager.call('patch', '/stores/current', { address: 'X' })).status).toBe(403);
+    const code = data.run + '-new';
+    expect((await cashier.call('patch', '/stores/current', { code })).status).toBe(403);
+    expect((await manager.call('patch', '/stores/current', { code, address: 'X' })).status).toBe(403);
+    const renamed = await manager.call('patch', '/stores/current', { code });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.code).toBe(code);
     const updated = await admin.call('patch', '/stores/current', {
+      code: data.run,
       address: '12 Nguyễn Huệ, Q. 1',
       phone: '028 3812 3456',
       receiptFooter: 'Cảm ơn quý khách',
     });
     expect(updated.status).toBe(200);
     expect(updated.body).toMatchObject({
+      code: data.run,
       address: '12 Nguyễn Huệ, Q. 1',
       phone: '02838123456',
       receiptFooter: 'Cảm ơn quý khách',

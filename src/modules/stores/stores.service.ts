@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { AuthUser } from '../../common/auth-user';
 import { AppException } from '../../common/app-exception';
 import { Errors } from '../../common/errors';
@@ -50,10 +51,18 @@ export class StoresService {
   async updateCurrent(user: AuthUser, dto: UpdateStoreDto, client: ClientInfo) {
     const data = definedOnly(dto);
     if (!Object.keys(data).length) throw Errors.emptyUpdate();
+    if (user.role === 'manager' && Object.keys(data).some((field) => field !== 'code')) {
+      throw Errors.forbidden();
+    }
     const store = await this.prisma.store.update({
       where: { id: user.storeId },
       data,
       select: STORE_SELECT,
+    }).catch((error: unknown) => {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new AppException(409, 'STORE_CODE_EXISTS', 'Mã cửa hàng đã được sử dụng');
+      }
+      throw error;
     });
     await this.audit.log('STORE_UPDATED', client, {
       userId: user.id,
